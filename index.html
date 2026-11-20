@@ -292,6 +292,8 @@ details.more[open]{padding-bottom:16px}
 .scanhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));background:var(--surface);color:var(--text)}
 .scanview{flex:1;min-height:0;overflow:hidden}
 .scanview video{width:100%!important;height:100%!important;object-fit:cover}
+.chooser{flex:1;min-height:0;overflow:auto;background:var(--bg);padding:14px 16px}
+.chooser .pick{width:100%;text-align:left}
 .scanhint{padding:14px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));background:var(--surface);color:var(--text);text-align:center;font-weight:600;font-size:15px}
 </style>
 
@@ -926,8 +928,11 @@ function viewBag() {
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Chọn hàng &amp; số lượng</h3>' +
     (it ? '<div class="pick on"><div class="bagsku"><div class="grow"><div class="nm">' + esc(it.barcode || it.sku) + '</div>' +
       '<div class="small" style="color:var(--text2)">' + esc(it.ten) + ' · ' + esc(it.phanLoai) + '</div><div class="muted small">SKU ' + esc(it.sku) + '</div></div>' +
-      '<button type="button" class="btn sm" onclick="S.bag.sku=null;viewBag()">Đổi</button></div>' +
+      '<button type="button" class="btn sm" onclick="S.bag.sku=null;S.bag.scanCode=null;viewBag()">Đổi</button></div>' +
       '<div class="need"><div>Cần<b>' + it.slCan + '</b></div><div>Đã đóng<b>' + it.slDong + '</b></div><div class="left">Còn<b>' + left + '</b></div></div></div>' +
+      (b.scanCode && S.codes[b.scanCode] ? '<div class="small muted">Chọn bằng mã quét ' + esc(b.scanCode) +
+        (isAdmin() ? ' · <a href="#" onclick="showCodeChooser(\'' + esc(b.scanCode) + '\');return false">Sai hàng? Ghép lại</a>'
+          : ' · Sai hàng? Báo quản trị viên') + '</div>' : '') +
       '<div class="qtyrow"><span class="lb">Số lượng<br>trong bao</span><div class="stepper grow">' +
       '<button type="button" class="btn" aria-label="Giảm" onclick="stepQty(-1)">−</button>' +
       '<input class="in grow" type="number" inputmode="numeric" min="1" id="bqty" aria-label="Số lượng" value="' + esc(b.qty) + '" oninput="S.bag.qty=this.value">' +
@@ -1033,6 +1038,7 @@ function loadScanLib() {
 }
 function openScanner() {
   if (SCAN) return;
+  refreshCodes();   // lấy bảng ghép mã mới nhất (người khác vừa ghép) trong lúc mở camera
   var box = document.createElement('div');
   box.className = 'scanbox'; box.id = 'scanbox';
   box.innerHTML = '<div class="scanhead"><div class="bold">Quét barcode / mã QR</div>' +
@@ -1062,21 +1068,103 @@ function closeScanner() {
   rm();
 }
 function normCode(v) { return String(v || '').trim().toUpperCase().replace(/\s+/g, ''); }
+
+/* Bảng ghép mã: dãy số in trên bao bì → barcode chữ trong PO. Lưu trên máy chủ (dùng chung mọi người), nhớ tạm trên máy. */
+S.codes = (function () { try { return JSON.parse(load('godfbs_codes') || '{}') || {}; } catch (e) { return {}; } })();
+function refreshCodes() {
+  return call('listCodes', {}, { quiet: true, silent: true }).then(function (list) {
+    var m = {}; list.forEach(function (r) { m[normCode(r.code)] = { barcode: r.barcode, sku: r.sku }; });
+    S.codes = m; store('godfbs_codes', JSON.stringify(m));
+  }).catch(function () { /* mất mạng thì dùng bảng đã nhớ */ });
+}
+function itemByCode(code) {
+  if (!S.detail) return null;
+  var items = S.detail.items;
+  var hit = items.filter(function (i) { return normCode(i.barcode) === code || normCode(i.sku) === code; })[0];
+  if (hit) return hit;
+  var m = S.codes[code];
+  if (!m) return null;
+  return items.filter(function (i) { return (m.barcode && normCode(i.barcode) === normCode(m.barcode)) || (m.sku && String(i.sku) === String(m.sku)); })[0] || null;
+}
+
 function gotScan(text) {
   if (!SCAN || SCAN.done || !S.bag || !S.detail) return;
   var code = normCode(text);
-  var hit = S.detail.items.filter(function (i) { return normCode(i.barcode) === code || normCode(i.sku) === code; })[0];
-  if (!hit) {
-    var h = $('scanhint');
-    if (h) h.innerHTML = 'Mã <b>' + esc(text) + '</b> không có trong PO này. Thử quét lại hoặc bấm Đóng.';
+  var hit = itemByCode(code);
+  if (hit) {
+    SCAN.done = true;
+    try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
+    closeScanner();
+    choseScanned(code, hit);
     return;
   }
+  var m = S.codes[code];
+  if (m) {   // đã ghép nhưng hàng đó không có trong PO đang đóng
+    var h = $('scanhint');
+    if (h && h.getAttribute('data-code') !== code) {
+      h.setAttribute('data-code', code);
+      h.innerHTML = 'Mã <b>' + esc(code) + '</b> là hàng <b>' + esc(m.barcode || m.sku) + '</b>, không có trong PO này.' +
+        (isAdmin() ? '<div style="margin-top:8px"><button type="button" class="btn sm" onclick="showCodeChooser(\'' + esc(code) + '\')">Ghép lại cho hàng khác</button></div>' : '');
+    }
+    return;
+  }
+  // Mã mới chưa ghép: quản trị viên thì hỏi đây là hàng nào; nhân viên thì báo chưa có mã, chọn tay
   SCAN.done = true;
   try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
+  if (isAdmin()) showCodeChooser(code); else showUnknownCode(code);
+}
+
+/* Nhân viên quét gặp mã chưa có trong bảng mã: không cho ghép, chỉ báo và cho chọn hàng bằng tay */
+function showUnknownCode(code) {
+  var s = SCAN; SCAN = null;
+  if (s && s.qr) { try { s.qr.stop().catch(function () {}); } catch (e) { /* bỏ qua */ } }
+  var box = $('scanbox');
+  if (!box) { box = document.createElement('div'); box.className = 'scanbox'; box.id = 'scanbox'; document.body.appendChild(box); }
+  box.innerHTML = '<div class="scanhead"><div class="bold">Mã chưa có trong bảng mã</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div class="chooser"><div class="card stack" style="gap:6px"><div class="muted small">Mã vừa quét</div>' +
+    '<div class="bold" style="font-size:20px;word-break:break-all">' + esc(code) + '</div>' +
+    '<div class="small">Mã này chưa được ghép với hàng nào. Bạn chụp lại mã này gửi <b>quản trị viên</b> để ghép, rồi chọn hàng bằng tay trong danh sách.</div></div></div>' +
+    '<div class="scanhint row" style="justify-content:center"><button type="button" class="btn sm" onclick="closeScanner();openScanner()">' + ICON.scan + 'Quét lại</button>' +
+    '<button type="button" class="btn sm pri" onclick="closeScanner()">Chọn bằng tay</button></div>';
+}
+
+function choseScanned(code, it) {
+  S.bag.q = ''; S.bag.scanCode = code;
+  pickSku(it.sku);
+  toast('Đã chọn ' + (it.barcode || it.sku));
+}
+
+/* Bảng chọn "Mã này là hàng nào?" (dùng khi quét mã mới, hoặc ghép lại khi lỡ ghép nhầm) */
+function showCodeChooser(code) {
+  var s = SCAN; SCAN = null;
+  if (s && s.qr) { try { s.qr.stop().catch(function () {}); } catch (e) { /* bỏ qua */ } }
+  var box = $('scanbox');
+  if (!box) { box = document.createElement('div'); box.className = 'scanbox'; box.id = 'scanbox'; document.body.appendChild(box); }
+  var items = S.detail.items.slice().sort(function (x, y) { return (x.slDong >= x.slCan) - (y.slDong >= y.slCan); });
+  box.innerHTML = '<div class="scanhead"><div class="bold">Ghép mã vạch</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div class="chooser"><div class="stack" style="gap:8px">' +
+    '<div class="card stack" style="gap:4px"><div class="muted small">Mã vừa quét</div><div class="bold" style="font-size:20px;word-break:break-all">' + esc(code) + '</div>' +
+    '<div class="small">Mã này chưa ghép với hàng nào. Chọn đúng hàng bên dưới, lần sau quét là app tự nhận ra.</div></div>' +
+    items.map(function (i) {
+      return '<button type="button" class="pick' + (i.slDong >= i.slCan ? ' dim' : '') + '" onclick="saveScanCode(\'' + esc(code) + '\',\'' + esc(i.sku) + '\')">' +
+        '<div class="bold" style="font-size:14px">' + esc(i.barcode || i.sku) + '</div>' +
+        '<div class="small" style="color:var(--text2)">' + esc(i.ten) + ' · ' + esc(i.phanLoai) + '</div>' +
+        '<div class="muted small">SKU ' + esc(i.sku) + ' · Còn ' + Math.max(0, i.slCan - i.slDong) + '</div></button>';
+    }).join('') +
+    '</div></div>' +
+    '<div class="scanhint"><button type="button" class="btn sm" onclick="closeScanner();openScanner()">' + ICON.scan + 'Quét lại</button></div>';
+}
+
+function saveScanCode(code, sku) {
+  var it = S.detail.items.filter(function (i) { return String(i.sku) === String(sku); })[0];
+  if (!it) return;
+  S.codes[code] = { barcode: it.barcode, sku: String(it.sku) };
+  store('godfbs_codes', JSON.stringify(S.codes));
   closeScanner();
-  S.bag.q = '';
-  pickSku(hit.sku);
-  toast('Đã chọn ' + (hit.barcode || hit.sku));
+  choseScanned(code, it);
+  call('saveCode', { code: code, barcode: it.barcode, sku: it.sku, ten: it.ten }, { quiet: true })
+    .then(function () { toast('Đã ghép mã ' + code + ' → ' + (it.barcode || it.sku)); })
+    .catch(function () { /* call() đã báo lỗi; máy này vẫn nhớ tạm */ });
 }
 
 /* ---------- Quay video trong trình duyệt ---------- */

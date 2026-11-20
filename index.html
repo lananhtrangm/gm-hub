@@ -286,6 +286,13 @@ details.more[open]{padding-bottom:16px}
 .pw .in{padding-right:52px}
 .pweye{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:44px;height:44px;border:0;background:none;color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;border-radius:10px}
 .pweye:hover{color:var(--ink)}
+/* Quét barcode / QR (bước 01 Chọn hàng) */
+.scanbtn{flex:none;height:50px;padding:0 14px;background:var(--ink);border-color:var(--ink);color:var(--on-ink)}
+.scanbox{position:fixed;inset:0;z-index:60;background:#000;display:flex;flex-direction:column}
+.scanhead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 16px;padding-top:max(12px,env(safe-area-inset-top));background:var(--surface);color:var(--text)}
+.scanview{flex:1;min-height:0;overflow:hidden}
+.scanview video{width:100%!important;height:100%!important;object-fit:cover}
+.scanhint{padding:14px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));background:var(--surface);color:var(--text);text-align:center;font-weight:600;font-size:15px}
 </style>
 
 </head>
@@ -394,6 +401,7 @@ var ICON = {
   out: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 4h4v16h-4"/><path d="M10 8l-4 4 4 4"/><path d="M6 12h10"/></svg>',
   back: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>',
   video: '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m16 10 5-3v10l-5-3"/></svg>',
+  scan: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 8v8M11 8v8M14 8v8M17 8v8"/></svg>',
   cam: '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',
   up: '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>',
   logo: '<svg width="84" height="84" viewBox="0 0 120 120" aria-hidden="true"><rect width="120" height="120" rx="28" fill="#FBF6EE"/><path d="M27 40l-3-26 22 13z M93 40l3-26-22 13z" fill="#E9A53C" stroke="#5A3E2B" stroke-width="5" stroke-linejoin="round"/><path d="M29 33l-1-12 10 6z M91 33l1-12-10 6z" fill="#F4A3A3"/><path d="M60 12l40 23v46l-40 23-40-23V35z" fill="#E9A53C" stroke="#5A3E2B" stroke-width="5" stroke-linejoin="round"/><ellipse cx="45" cy="52" rx="5" ry="6.5" fill="#5A3E2B"/><ellipse cx="75" cy="52" rx="5" ry="6.5" fill="#5A3E2B"/><circle cx="46.6" cy="49.5" r="1.8" fill="#FFF"/><circle cx="76.6" cy="49.5" r="1.8" fill="#FFF"/><path d="M56.5 60h7l-3.5 4z" fill="#E9563C"/><path d="M37 62H22M37 67l-14 4M83 62h15M83 67l14 4" stroke="#5A3E2B" stroke-width="2.6" stroke-linecap="round"/><path d="M47 75 60 69l13 6v13L60 94 47 88z" fill="#5A3E2B"/><path d="m54 81 4.5 4.5 8-9" fill="none" stroke="#FFF" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
@@ -924,7 +932,8 @@ function viewBag() {
       '<button type="button" class="btn" aria-label="Giảm" onclick="stepQty(-1)">−</button>' +
       '<input class="in grow" type="number" inputmode="numeric" min="1" id="bqty" aria-label="Số lượng" value="' + esc(b.qty) + '" oninput="S.bag.qty=this.value">' +
       '<button type="button" class="btn" aria-label="Tăng" onclick="stepQty(1)">+</button></div></div>'
-      : '<input class="in" type="search" placeholder="Gõ barcode để tìm, ví dụ DN-P-2" value="' + esc(b.q) + '" oninput="S.bag.q=this.value;filterPicks()" id="bq">' +
+      : '<div class="row"><input class="in grow" type="search" placeholder="Gõ barcode để tìm, ví dụ DN-P-2" value="' + esc(b.q) + '" oninput="S.bag.q=this.value;filterPicks()" id="bq">' +
+        (CAN_SCAN ? '<button type="button" class="btn scanbtn" onclick="openScanner()" aria-label="Quét mã bằng camera">' + ICON.scan + 'Quét mã</button>' : '') + '</div>' +
         '<div class="stack" id="picks" style="gap:8px">' + picks + '</div>') + '</div>' +
 
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video đóng hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3>' + vid + '</div>' +
@@ -1005,6 +1014,69 @@ function doSaveBag(b) {
     showLot(r.detail);
     syncLot(r.lotId);
   });
+}
+
+/* ---------- Quét barcode / QR bằng camera để chọn hàng (bước 01) ---------- */
+/* Dùng thư viện html5-qrcode (đọc cả mã vạch 1D và QR, chạy được trên iPhone lẫn Android), chỉ tải khi bấm "Quét mã". */
+var CAN_SCAN = !!window.GODFBS_WEB && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+var SCAN_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js';
+var SCAN = null, scanLibP = null;
+function loadScanLib() {
+  if (window.Html5Qrcode) return Promise.resolve();
+  if (scanLibP) return scanLibP;
+  scanLibP = new Promise(function (resolve, reject) {
+    var s = document.createElement('script'); s.src = SCAN_LIB; s.onload = resolve;
+    s.onerror = function () { scanLibP = null; reject(new Error('Không tải được bộ quét mã, kiểm tra mạng rồi thử lại.')); };
+    document.head.appendChild(s);
+  });
+  return scanLibP;
+}
+function openScanner() {
+  if (SCAN) return;
+  var box = document.createElement('div');
+  box.className = 'scanbox'; box.id = 'scanbox';
+  box.innerHTML = '<div class="scanhead"><div class="bold">Quét barcode / mã QR</div>' +
+    '<button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div id="scanview" class="scanview"></div>' +
+    '<div class="scanhint" id="scanhint">Đưa mã vạch vào giữa khung, giữ yên tay…</div>';
+  document.body.appendChild(box);
+  SCAN = { qr: null, done: false };
+  loadScanLib().then(function () {
+    if (!SCAN) return;
+    var cfg = { fps: 12, qrbox: function (w, h) { var s = Math.min(w, h); return { width: Math.round(Math.min(w * 0.85, 340)), height: Math.round(s * 0.5) }; },
+      experimentalFeatures: { useBarCodeDetectorIfSupported: true } };
+    SCAN.qr = new Html5Qrcode('scanview', { verbose: false });
+    return SCAN.qr.start({ facingMode: 'environment' }, cfg, gotScan, function () {});
+  }).catch(function (e) {
+    var name = (e && e.name) || String(e || '');
+    closeScanner();
+    toast(/NotAllowed|Permission/i.test(name)
+      ? 'Trình duyệt đang chặn camera. Vào cài đặt cho phép Camera rồi tải lại trang.'
+      : ((e && e.message) || 'Không mở được camera.'), true);
+  });
+}
+function closeScanner() {
+  var s = SCAN; SCAN = null;
+  var rm = function () { var b = $('scanbox'); if (b) b.remove(); };
+  if (s && s.qr) { try { s.qr.stop().then(rm, rm); return; } catch (e) { /* chưa chạy */ } }
+  rm();
+}
+function normCode(v) { return String(v || '').trim().toUpperCase().replace(/\s+/g, ''); }
+function gotScan(text) {
+  if (!SCAN || SCAN.done || !S.bag || !S.detail) return;
+  var code = normCode(text);
+  var hit = S.detail.items.filter(function (i) { return normCode(i.barcode) === code || normCode(i.sku) === code; })[0];
+  if (!hit) {
+    var h = $('scanhint');
+    if (h) h.innerHTML = 'Mã <b>' + esc(text) + '</b> không có trong PO này. Thử quét lại hoặc bấm Đóng.';
+    return;
+  }
+  SCAN.done = true;
+  try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
+  closeScanner();
+  S.bag.q = '';
+  pickSku(hit.sku);
+  toast('Đã chọn ' + (hit.barcode || hit.sku));
 }
 
 /* ---------- Quay video trong trình duyệt ---------- */

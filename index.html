@@ -295,6 +295,10 @@ details.more[open]{padding-bottom:16px}
 .chooser{flex:1;min-height:0;overflow:auto;background:var(--bg);padding:14px 16px}
 .chooser .pick{width:100%;text-align:left}
 .scanhint{padding:14px 16px;padding-bottom:max(14px,env(safe-area-inset-bottom));background:var(--surface);color:var(--text);text-align:center;font-weight:600;font-size:15px}
+.vqbar{position:fixed;top:calc(8px + env(safe-area-inset-top));left:50%;transform:translateX(-50%);z-index:40;background:var(--ink);color:var(--on-ink);font-size:12px;font-weight:700;padding:7px 14px;border-radius:999px;max-width:92vw;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 4px 12px rgba(0,0,0,.18);cursor:pointer}
+.vqbar.bad{background:var(--bad)}
+.vqbar[hidden]{display:none}
+.rec #recup{font-weight:600;opacity:.9}
 </style>
 
 </head>
@@ -350,6 +354,7 @@ function toast(msg, err) {
 }
 function evidenceChip(b) {
   if (b.cleaned) return '<span class="muted">Đã xóa sau 30 ngày</span>';
+  if (b.videoPending) return '<span class="chip warn">⏳ Video đang tải · ' + (b.photoCount || 0) + ' ảnh</span>';
   return '<span class="chip ' + (b.hasVideo ? 'ok' : 'bad') + '">' + (b.hasVideo ? '✓ Đã có video' : 'Thiếu video') +
     ' · ' + (b.photoCount || 0) + ' ảnh</span>';
 }
@@ -443,7 +448,7 @@ function nav(active) {
 
 /* ===================== KHỞI ĐỘNG ===================== */
 window.addEventListener('beforeunload', function (e) {
-  if (S.uploading) { e.preventDefault(); e.returnValue = ''; }
+  if (vqBusy() || (REC && REC.rec)) { e.preventDefault(); e.returnValue = ''; }
 });
 
 /* Mở app: hiện màn hình ngay từ dữ liệu đã lưu trên máy, hỏi máy chủ chạy ngầm phía sau
@@ -454,7 +459,7 @@ function boot() {
   try { savedUser = JSON.parse(load('godfbs_user') || 'null'); } catch (e) { savedUser = null; }
   if (S.token && savedUser) {
     // Đã đăng nhập trên máy này: vào thẳng danh sách lô, kiểm tra phiên ngầm
-    S.user = savedUser; S.kho = load('godfbs_kho'); go('lots');
+    S.user = savedUser; S.kho = load('godfbs_kho'); go('lots'); vqInit();
     call('me', {}, { quiet: true, silent: true }).then(function (d) {
       var roleChanged = !S.user || S.user.role !== d.user.role;
       S.user = d.user; S.tinhTrang = d.tinhTrang || S.tinhTrang;
@@ -466,7 +471,7 @@ function boot() {
     call('me', {}, { quiet: true, silent: true }).then(function (d) {
       S.user = d.user; S.tinhTrang = d.tinhTrang; S.kho = load('godfbs_kho');
       store('godfbs_user', JSON.stringify(d.user)); store('godfbs_has_users', '1');
-      go('lots');
+      go('lots'); vqInit();
     }).catch(function () { logoutLocal(); });
   } else if (load('godfbs_has_users') === '1') {
     // Máy này đã từng thấy có tài khoản: hiện ô đăng nhập ngay, không cần hỏi máy chủ
@@ -478,9 +483,10 @@ function boot() {
   }
 }
 
-function logoutLocal() { if (S.user) store(lotsKey(), null); S.token = null; S.user = null; S.lots = []; S.lotCache = {}; store('godfbs_token', null); store('godfbs_user', null); viewLogin(); }
+function logoutLocal() { VQ.inited = false; VQ.jobs.forEach(function (j) { j.dead = true; }); VQ.jobs = []; vqBar(); if (S.user) store(lotsKey(), null); S.token = null; S.user = null; S.lots = []; S.lotCache = {}; store('godfbs_token', null); store('godfbs_user', null); viewLogin(); }
 function logout() {
-  (S.uploading ? ask('Video đang tải lên. Vẫn đăng xuất?') : Promise.resolve(true)).then(function (ok) {
+  if (vqBusy()) return ask('Còn video chưa tải xong lên Drive. Đăng xuất bây giờ video sẽ không gắn được vào bao.\n\nĐể app mở, có mạng, chờ dòng "Đang tải video" trên cùng biến mất rồi mới đăng xuất.', { ok: 'Đã hiểu' });
+  Promise.resolve(true).then(function (ok) {
     if (!ok) return;
     call('logout', {}, { quiet: true, silent: true }).catch(function () {});
     logoutLocal();
@@ -492,13 +498,13 @@ function afterLogin(d) {
   S.token = d.token; S.user = d.user; S.tinhTrang = d.tinhTrang || S.tinhTrang;
   store('godfbs_token', d.token);
   store('godfbs_user', JSON.stringify(d.user)); store('godfbs_has_users', '1');
-  go('lots');
+  go('lots'); vqInit();
 }
 
 function go(view, arg) {
   if (S.bag && view !== 'bag') {
-    if (S.uploading) { toast('Video đang tải lên, vui lòng chờ xong.', true); return; }
-    S.bag = null;   // bao nháp vẫn giữ trên máy chủ, bấm "Đóng bao mới" để làm tiếp số bao đó
+    if (REC) { toast('Đang quay video, dừng quay trước nhé.', true); return; }
+    S.bag = null;   // video (nếu có) vẫn tải ngầm, mở lại bao sẽ thấy   // bao nháp vẫn giữ trên máy chủ, bấm "Đóng bao mới" để làm tiếp số bao đó
   }
   S.view = view;
   if (view === 'lots') return loadLots();
@@ -763,7 +769,7 @@ function viewLot(keep) {
     return '<tr><td>' + b.baoNo + '</td><td>' + esc(b.barcode) + '</td><td class="num">' + b.qty + '</td><td>' + esc(b.tinhTrang) + '</td>' +
       '<td>' + esc(b.user) + '</td><td>' + esc(b.createdAt) + '</td>' +
       (isAdmin() ? '<td>' + (b.cleaned ? '<span class="muted">Đã xóa sau 30 ngày</span>' :
-        '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a> · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>') +
+        (b.videoPending ? '<span class="chip warn">⏳ Video đang tải</span>' : '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a>') + ' · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>') +
         (!done ? ' · <a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : '') + '</td>'
         : '<td>' + evidenceChip(b) + '</td>') + '</tr>';
   }).join('');
@@ -863,16 +869,19 @@ function delBag(id, no) {
 /* Mở ngay màn hình đóng bao; số bao lấy ngầm từ máy chủ (1–2 giây) */
 function newBag() {
   var lotId = S.lotId;
-  var bag = { bagId: null, baoNo: null, sku: null, qty: '', q: '', video: null, videoId: null, progress: 0,
+  var bag = { bagId: null, baoNo: null, sku: null, qty: '', q: '', job: null, videoId: null,
     photos: [], danTem: false, xuatTrucTiep: false, xuatSSC: false, maDonSSC: '', slGoiThem: '', tinhTrang: '' };
   bag.ready = call('startBag', { lotId: lotId }, { quiet: true, silent: true }).then(function (r) {
     bag.bagId = r.bagId; bag.baoNo = r.baoNo;
+    if (bag.job) { bag.job.bagId = r.bagId; bag.job.baoNo = r.baoNo; }
+    vqAttach(bag);
     if (S.bag === bag) [].forEach.call(document.querySelectorAll('.baono'), function (el) { el.textContent = r.baoNo; });
     return bag;
   });
   bag.ready.catch(function (e) {
     if (S.bag !== bag) return;
-    S.bag = null; S.uploading = false;
+    if (bag.job) { vqDrop(bag.job); bag.job = null; }
+    S.bag = null;
     toast('Chưa tạo được bao mới: ' + ((e && e.message) || 'mất kết nối') + '. Bấm lại "Đóng bao mới".', true);
     showLot(S.lotCache[lotId] || S.detail);
   });
@@ -900,19 +909,7 @@ function viewBag() {
       '<div class="small bold" style="margin-top:4px">Cần ' + i.slCan + ' · Đã đóng ' + i.slDong + ' · Còn ' + Math.max(0, i.slCan - i.slDong) + '</div></button>';
   }).join('');
 
-  var vid;
-  if (b.videoId) vid = '<div class="vidok">✓ Video đã lưu lên Drive<span class="grow"></span><button type="button" class="btn sm" onclick="redoVideo()">' + (CAN_RECORD ? 'Quay lại' : 'Chọn lại') + '</button></div>';
-  else if (b.video) vid = '<div class="stack"><div class="row between"><span class="bold">Đang tải video lên…</span><span class="small muted">' +
-    (b.video.size / 1048576).toFixed(1) + ' MB</span></div><div class="bar"><div id="vbar" style="width:' + b.progress + '%"></div></div>' +
-    '<div class="small muted" id="vtxt">' + b.progress + '% · Vui lòng không tắt trang</div>' +
-    (b.videoError ? '<div class="small" style="color:var(--bad)">' + esc(b.videoError) + '</div><button type="button" class="btn sm" onclick="uploadVideo()">Thử tải lại</button>' : '') + '</div>';
-  else if (CAN_RECORD) vid = '<button type="button" class="drop" onclick="recordVideo()" style="color:var(--pri-ink)">' + ICON.video +
-    '<div class="bold">Quay video ngay</div><div class="muted small">Bắt buộc · Quay Full HD ngay trong app, quay xong tự lưu lên Drive</div></button>' +
-    '<div class="center small"><a href="#" onclick="$(\'vfile\').click();return false">hoặc chọn video đã quay sẵn</a></div>';
-  else vid = '<button type="button" class="drop" onclick="$(\'vfile\').click()" style="color:var(--pri-ink)">' + ICON.up +
-    '<div class="bold">Chọn video đã quay</div><div class="muted small">Bắt buộc · Quay bằng app Camera trước (1080p), rồi bấm đây chọn video</div></button>' +
-    '<div class="center small"><a href="#" onclick="$(\'vcap\').click();return false">hoặc quay nhanh bằng máy quay</a>' +
-    (IS_IOS ? '<div class="muted" style="margin-top:2px">Trên iPhone, quay nhanh sẽ bị mờ, chỉ dùng khi gấp</div>' : '') + '</div>';
+  var vid = vidBox(b);
 
   var thumbs = b.photos.map(function (p) {
     return '<div style="position:relative"><img src="' + p.thumb + '" alt="Ảnh bao">' + (p.id ? '' : '<div class="small muted center">đang tải…</div>') + '</div>';
@@ -979,10 +976,11 @@ function stepQty(n) {
 }
 
 function cancelBag() {
-  if (S.uploading) return toast('Video đang tải lên, vui lòng chờ xong.', true);
-  ask('Hủy bao số ' + S.bag.baoNo + '? Thông tin đã nhập sẽ mất.', { ok: 'Hủy bao', danger: true }).then(function (ok) {
+  ask('Hủy bao số ' + (S.bag.baoNo || '') + '? Thông tin đã nhập' + (S.bag.job || S.bag.videoId ? ' và video' : '') + ' sẽ mất.', { ok: 'Hủy bao', danger: true }).then(function (ok) {
     if (!ok || !S.bag) return;
     var bag = S.bag, lotId = S.lotId; S.bag = null;
+    if (bag.job) { vqDrop(bag.job); bag.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId && j.bagId === bag.bagId; }).forEach(vqDrop);
     showLot(S.lotCache[lotId] || S.detail);   // quay về lô ngay, báo hủy chạy ngầm
     bag.ready.then(function () { return call('cancelBag', { bagId: bag.bagId }, { quiet: true, silent: true }); })
       .then(function (d) {
@@ -998,8 +996,8 @@ function saveBag() {
   if (!b.bagId) return toast('Đang lấy số bao, chờ 1–2 giây rồi bấm lại nhé.', true);
   if (!b.sku) return toast('Chưa chọn SKU.', true);
   if (!(Number(b.qty) > 0)) return toast('Chưa nhập số lượng.', true);
-  if (S.uploading) return toast('Video đang tải lên, chờ chút nhé.', true);
-  if (!b.videoId) return toast('Bao chưa có video.', true);
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video.', true);
   if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
   var it = bagItem();
   var over = it && it.slDong + Number(b.qty) > it.slCan;
@@ -1008,14 +1006,20 @@ function saveBag() {
   });
 }
 function doSaveBag(b) {
+  var vid = b.videoId || '';   // video lúc bấm chốt (video có thể tải xong ngay trong lúc chờ máy chủ)
   call('saveBag', {
-    bagId: b.bagId, sku: b.sku, qty: Number(b.qty), videoId: b.videoId,
+    bagId: b.bagId, sku: b.sku, qty: Number(b.qty), videoId: vid, videoPending: !vid,
     photoIds: b.photos.map(function (p) { return p.id; }),
     danTem: b.danTem, xuatTrucTiep: b.xuatTrucTiep, xuatSSC: b.xuatSSC,
     maDonSSC: b.maDonSSC, slGoiThem: b.slGoiThem, tinhTrang: b.tinhTrang
   }, { text: 'Đang chốt bao…' }).then(function (r) {
     S.bag = null;
-    toast('Đã chốt bao số ' + r.baoNo + '.');
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+      if (vid && j.fileId === vid) return vqDrop(j);   // video đã gắn thẳng vào bao
+      if (!j.keep) return vqDrop(j);
+      j.saved = true; vqSave(j); vqKick();                          // video tải xong sẽ tự gắn vào bao
+    });
+    toast('Đã chốt bao số ' + r.baoNo + '.' + (vid ? '' : ' Video đang tự tải tiếp, đừng tắt app nhé.'));
     showLot(r.detail);
     syncLot(r.lotId);
   });
@@ -1188,7 +1192,12 @@ function keepAwake(on) {
   if (on && !WAKE) navigator.wakeLock.request('screen').then(function (w) { WAKE = w; w.addEventListener('release', function () { if (WAKE === w) WAKE = null; }); }).catch(function () {});
   if (!on && WAKE) { WAKE.release().catch(function () {}); WAKE = null; }
 }
-document.addEventListener('visibilitychange', function () { if (!document.hidden && (REC || S.uploading)) keepAwake(true); });
+document.addEventListener('visibilitychange', function () {
+  if (document.hidden) recCut('ẩn app');   // có cuộc gọi / chuyển app khi đang quay
+  else { if (REC || vqBusy()) keepAwake(true); vqKick(); }
+});
+window.addEventListener('pagehide', function () { recCut('tắt trang'); });
+window.addEventListener('online', function () { vqKick(); });
 
 function camConstraints(relaxed) {
   return { facingMode: { ideal: 'environment' },
@@ -1208,19 +1217,22 @@ function recordVideo() {
     return ask('Trình duyệt này không quay được video ngay trong app. Hãy quay bằng app Camera rồi bấm "chọn video đã quay sẵn".', { ok: 'Chọn video' })
       .then(function (ok) { if (ok) $('vfile').click(); });
   }
-  openCamera().then(function (stream) {
-    try {   // lấy nét liên tục nếu máy hỗ trợ
-      var track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
-      if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
-    } catch (e) { /* bỏ qua */ }
-    openRecorder(stream, mime);
-  }).catch(function (e) {
-    var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
-    ask((denied
-      ? 'Trình duyệt đang CHẶN camera.\niPhone: Cài đặt → Safari → Camera → Cho phép (và Micrô → Cho phép), rồi tải lại trang.\nAndroid: bấm biểu tượng cạnh địa chỉ trang → Quyền → Camera, Micrô → Cho phép.'
-      : 'Không mở được camera (' + ((e && e.name) || 'lỗi') + ').') +
-      '\n\nTạm thời có thể quay bằng app Camera rồi chọn video đã quay.', { ok: 'Chọn video' })
-      .then(function (ok) { if (ok) $('vfile').click(); });
+  vqSpaceOk().then(function (ok) {
+    if (!ok) return;
+    openCamera().then(function (stream) {
+      try {   // lấy nét liên tục nếu máy hỗ trợ
+        var track = stream.getVideoTracks()[0], caps = track.getCapabilities ? track.getCapabilities() : {};
+        if (caps.focusMode && caps.focusMode.indexOf('continuous') >= 0) track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
+      } catch (e) { /* bỏ qua */ }
+      openRecorder(stream, mime);
+    }).catch(function (e) {
+      var denied = e && (e.name === 'NotAllowedError' || e.name === 'SecurityError');
+      ask((denied
+        ? 'Trình duyệt đang CHẶN camera.\niPhone: Cài đặt → Safari → Camera → Cho phép (và Micrô → Cho phép), rồi tải lại trang.\nAndroid: bấm biểu tượng cạnh địa chỉ trang → Quyền → Camera, Micrô → Cho phép.'
+        : 'Không mở được camera (' + ((e && e.name) || 'lỗi') + ').') +
+        '\n\nTạm thời có thể quay bằng app Camera rồi chọn video đã quay.', { ok: 'Chọn video' })
+        .then(function (ok) { if (ok) $('vfile').click(); });
+    });
   });
 }
 
@@ -1233,136 +1245,397 @@ function resText(stream) {
 function openRecorder(stream, mime) {
   var div = document.createElement('div');
   div.className = 'rec'; div.id = 'rec';
-  div.innerHTML = '<div class="rectop"><span id="recres">' + esc(resText(stream)) + '</span><span id="recdot2" class="recon" hidden>● Đang quay</span></div>' +
+  div.innerHTML = '<div class="rectop"><span id="recres">' + esc(resText(stream)) + '</span><span id="recup"></span><span id="recdot2" class="recon" hidden>● Đang quay</span></div>' +
     '<video id="recv" playsinline muted autoplay></video>' +
     '<div class="ctl"><button type="button" class="btn sm" onclick="cancelRec()">Hủy</button>' +
-    '<button type="button" class="recdot" id="recbtn" aria-label="Bắt đầu quay" onclick="toggleRec()"></button>' +
+    '<div class="center"><button type="button" class="recdot" id="recbtn" aria-label="Bắt đầu quay" onclick="toggleRec()"></button>' +
+    '<div class="small" id="reclb" style="margin-top:4px">Bấm để quay</div></div>' +
     '<div id="rect" style="min-width:64px;text-align:right;font-weight:700">00:00</div></div>';
   document.body.appendChild(div);
   $('recv').srcObject = stream;
-  REC = { stream: stream, mime: mime, chunks: [], rec: null, t0: 0, timer: null };
+  REC = { stream: stream, mime: mime, rec: null, t0: 0, timer: null, job: null, cut: false };
+  stream.getTracks().forEach(function (t) { t.addEventListener('ended', function () { recCut('camera bị ngắt'); }); });
   keepAwake(true);
 }
 function cancelRec() {
-  if (REC && REC.rec) return ask('Bỏ đoạn video đang quay?', { ok: 'Bỏ video', danger: true }).then(function (ok) { if (ok) { closeRecorder(true); keepAwake(false); } });
+  if (REC && REC.rec) return ask('Bỏ đoạn video đang quay? Phần đã quay sẽ bị xóa, không lưu lên Drive.', { ok: 'Bỏ video', danger: true }).then(function (ok) { if (ok) { closeRecorder(true); keepAwake(false); } });
   closeRecorder(true); keepAwake(false);
+}
+
+/* Tốc độ ghi: giữ Full HD, ghi gọn lại (~19–23 MB mỗi phút thay vì ~45 MB) — chị Bồng duyệt 20/11 */
+function recBitrate(stream, mime) {
+  var st = {}; try { st = stream.getVideoTracks()[0].getSettings() || {}; } catch (e) {}
+  var full = Math.min(st.width || 1920, st.height || 1080) >= 1080;
+  var mp4 = /mp4/.test(mime || '');   // iPhone (MP4) nén tốt hơn Android (WebM) nên cần ít hơn
+  return full ? (mp4 ? 2500000 : 3000000) : (mp4 ? 1800000 : 2000000);
 }
 
 function toggleRec() {
   if (!REC) return;
   if (!REC.rec) {
-    var st = {}; try { st = REC.stream.getVideoTracks()[0].getSettings() || {}; } catch (e) {}
-    var px = (st.width || 1920) * (st.height || 1080);
-    var opts = { videoBitsPerSecond: px >= 1920 * 1080 ? 6000000 : 4000000, audioBitsPerSecond: 96000 };   // ~45 MB mỗi phút ở Full HD
+    var opts = { videoBitsPerSecond: recBitrate(REC.stream, REC.mime), audioBitsPerSecond: 64000 };
     if (REC.mime) opts.mimeType = REC.mime;
     try { REC.rec = new MediaRecorder(REC.stream, opts); } catch (e) { REC.rec = new MediaRecorder(REC.stream); }
-    REC.rec.ondataavailable = function (e) { if (e.data && e.data.size) REC.chunks.push(e.data); };
-    REC.rec.onstop = function () {
-      var type = (REC.rec.mimeType || REC.mime || 'video/webm').split(';')[0];
-      var blob = new Blob(REC.chunks, { type: type });
-      closeRecorder(false);
-      setVideo(blob);
-    };
-    REC.rec.start(1000);
-    REC.t0 = Date.now();
-    $('recbtn').classList.add('stop'); $('recbtn').setAttribute('aria-label', 'Dừng quay');
+    var r = REC, bag = S.bag;
+    r.rec.ondataavailable = function (e) { if (e.data && e.data.size && r.job) vqAdd(r.job, e.data); };
+    r.rec.onerror = function () { recCut('lỗi máy quay'); };
+    r.rec.onstop = function () { recStopped(r, bag); };
+    r.rec.start(2000);   // cứ 2 giây lưu 1 đoạn vào máy và đẩy dần lên Drive
+    r.job = vqNew(bag, (r.rec.mimeType || r.mime || 'video/webm').split(';')[0], false);
+    if (bag) bag.job = r.job;
+    r.t0 = Date.now();
+    $('recbtn').classList.add('stop'); $('recbtn').setAttribute('aria-label', 'Dừng và lưu');
+    $('reclb').textContent = 'Dừng & lưu';
     $('recdot2').hidden = false;
-    REC.timer = setInterval(function () {
-      var ms = Date.now() - REC.t0, s = Math.floor(ms / 1000);
-      $('rect').textContent = String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
-      if (ms >= REC_MAX_MS && REC.rec.state === 'recording') { toast('Đã quay đủ 30 phút, tự dừng.'); REC.rec.stop(); }
+    r.timer = setInterval(function () {
+      var ms = Date.now() - r.t0, s = Math.floor(ms / 1000);
+      $('rect').textContent = mmss(s);
+      var j = r.job; if (j) j.dur = s; if (j && $('recup')) $('recup').textContent = 'Đã lên Drive ' + mb(j.sent) + '/' + mb(j.size) + ' MB';
+      if (ms >= REC_MAX_MS && r.rec.state === 'recording') { toast('Đã quay đủ 30 phút, tự dừng.'); r.rec.stop(); }
     }, 500);
   } else if (REC.rec.state === 'recording') {
     REC.rec.stop();
   }
 }
+function mmss(s) { return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0'); }
+function mb(n) { return (n / 1048576).toFixed(1); }
+
+/* Đang quay mà bị ngắt (cuộc gọi, chuyển app, camera bị lấy): dừng, GIỮ phần đã quay, hỏi giữ hay quay lại */
+function recCut(why) {
+  if (!REC || !REC.rec || REC.rec.state !== 'recording') return;
+  REC.cut = why || true;
+  try { REC.rec.stop(); } catch (e) { /* bỏ qua */ }
+}
+function recStopped(r, bag) {
+  var job = r.job;
+  if (!job || job.dead) return;
+  job.dur = Math.round((Date.now() - r.t0) / 1000);
+  job.final = true;
+  if (r.cut) job.status = 'hold'; else { job.keep = true; job.status = 'up'; }
+  vqSave(job);
+  closeRecorder(false);
+  if (REC === r) REC = null;
+  if (S.bag === bag && S.view === 'bag') viewBag();
+  if (r.cut) toast('Quay bị gián đoạn. Phần đã quay vẫn còn, chọn Giữ hoặc Quay lại.', true);
+  vqKick();
+}
 
 function closeRecorder(cancel) {
   if (!REC) return;
-  clearInterval(REC.timer);
-  REC.stream.getTracks().forEach(function (t) { t.stop(); });
-  if (cancel && REC.rec && REC.rec.state !== 'inactive') { REC.rec.onstop = null; REC.rec.stop(); }
+  var r = REC;
+  clearInterval(r.timer);
+  if (cancel && r.rec && r.rec.state !== 'inactive') { r.rec.onstop = null; r.rec.ondataavailable = null; try { r.rec.stop(); } catch (e) {} }
+  r.stream.getTracks().forEach(function (t) { t.stop(); });
   var el = $('rec'); if (el) el.remove();
-  if (cancel) REC = null;
+  if (cancel) {
+    if (r.job) { if (S.bag && S.bag.job === r.job) S.bag.job = null; vqDrop(r.job); }
+    REC = null;
+  }
 }
 
 function gotVideoFile(input) {
   var f = input.files && input.files[0]; input.value = '';
   if (!f) return;
-  if (f.size <= 600 * 1048576) return setVideo(f);
-  ask('Video khá nặng (' + (f.size / 1048576).toFixed(0) + ' MB), tải lên sẽ lâu. Tiếp tục?').then(function (ok) { if (ok) setVideo(f); });
-}
-
-function setVideo(blob) {
-  REC = null;
-  S.bag.video = blob; S.bag.videoId = null; S.bag.progress = 0; S.bag.videoError = '';
-  viewBag(); uploadVideo();
-}
-function redoVideo() {
-  ask('Chọn video khác? Video cũ vẫn nằm trong thư mục của bao.').then(function (ok) {
-    if (!ok || !S.bag) return;
-    S.bag.video = null; S.bag.videoId = null; viewBag();
-  });
-}
-
-function setProgress(p) {
-  S.bag.progress = p;
-  var bar = $('vbar'), txt = $('vtxt');
-  if (bar) bar.style.width = p + '%';
-  if (txt) txt.textContent = p + '% · Vui lòng không tắt trang';
-}
-
-function uploadVideo() {
-  var bag = S.bag, blob = bag.video;
-  var mime = (blob.type || 'video/mp4').split(';')[0];
-  S.uploading = true; bag.videoError = ''; keepAwake(true);
-  bag.ready.then(function () { return call('startVideoUpload', { bagId: bag.bagId, mimeType: mime, size: blob.size, origin: location.origin }, { quiet: true }); })
-    .then(function (r) { return sendChunks(r.uploadUrl, blob, mime); })
-    .then(function (fileId) {
-      S.uploading = false; keepAwake(false);
-      if (S.bag !== bag) return;
-      bag.videoId = fileId; bag.video = null; viewBag(); toast('Video đã lưu lên Drive.');
-    })
-    .catch(function (e) {
-      S.uploading = false; keepAwake(false);
-      if (S.bag !== bag) return;
-      bag.videoError = 'Tải video lỗi: ' + ((e && e.message) || 'mất kết nối') + '. Bấm thử lại.';
-      viewBag();
+  (f.size <= 600 * 1048576 ? Promise.resolve(true) : ask('Video khá nặng (' + (f.size / 1048576).toFixed(0) + ' MB), tải lên sẽ lâu. Tiếp tục?'))
+    .then(function (ok) {
+      if (!ok || !S.bag) return;
+      if (S.bag.job) { vqDrop(S.bag.job); S.bag.job = null; }
+      var job = vqNew(S.bag, (f.type || 'video/mp4').split(';')[0], true);   // video chọn từ máy: không chép vào bộ nhớ tạm (đã có trong thư viện ảnh)
+      job.parts.push(f); job.size = f.size; job.final = true; job.keep = true; job.status = 'up';
+      vqSave(job);
+      S.bag.job = job; S.bag.videoId = null;
+      viewBag(); vqKick();
     });
 }
 
-var CHUNK = 8 * 262144;          // 2 MB, bội số 256 KB
-async function sendChunks(url, blob, mime) {
-  var total = blob.size, start = 0, direct = true;
-  while (start < total) {
-    var end = Math.min(start + CHUNK, total);
-    var part = blob.slice(start, end);
-    var res = null;
-    if (direct) {
+/* Quay lại / chọn lại video của bao đang đóng */
+function redoVideo() {
+  var b = S.bag; if (!b) return;
+  ask('Quay lại video khác? Video cũ sẽ bị bỏ (tự vào thùng rác Drive khi chốt bao).', { ok: 'Quay lại' }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    b.videoId = null; viewBag();
+    if (CAN_RECORD) recordVideo();
+  });
+}
+function keepCutVideo() {
+  var j = S.bag && S.bag.job; if (!j) return;
+  j.keep = true; j.status = 'up'; vqSave(j); viewBag(); vqKick();
+}
+function redoCutVideo() {
+  var b = S.bag; if (!b || !b.job) return;
+  vqDrop(b.job); b.job = null; viewBag();
+  if (CAN_RECORD) recordVideo(); else $('vfile').click();
+}
+
+/* ===================== HÀNG ĐỢI TẢI VIDEO =====================
+   - Vừa quay vừa tải: mỗi 2 giây có 1 đoạn mới, đủ ~1 MB là đẩy lên Drive (phiên tải chưa biết tổng dung lượng).
+   - Lưu tạm từng đoạn trong máy (IndexedDB): tắt app / sập nguồn / cuộc gọi vẫn còn video, mở lại tải tiếp.
+   - Tải ngầm, lần lượt từng video: nhân viên chốt bao rồi làm bao khác luôn; video xong tự gắn vào bao. */
+var VQ = { db: null, dbP: null, jobs: [], running: false, warnedDisk: false };
+var VQ_Q = 262144, VQ_MIN = 4 * VQ_Q, VQ_MAX = 32 * VQ_Q, VQ_RELAY = 8 * VQ_Q;   // 256 KB · 1 MB · 8 MB · 2 MB
+
+function vqOpen() {
+  if (VQ.dbP) return VQ.dbP;
+  VQ.dbP = new Promise(function (resolve) {
+    try {
+      var rq = indexedDB.open('gmhub-video', 1);
+      rq.onupgradeneeded = function () {
+        var db = rq.result;
+        if (!db.objectStoreNames.contains('jobs')) db.createObjectStore('jobs', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('parts')) db.createObjectStore('parts', { keyPath: ['job', 'seq'] });
+      };
+      rq.onsuccess = function () { VQ.db = rq.result; resolve(VQ.db); };
+      rq.onerror = function () { resolve(null); };
+      rq.onblocked = function () { resolve(null); };
+    } catch (e) { resolve(null); }
+  });
+  return VQ.dbP;
+}
+function vqTx(store, mode, fn) {
+  return vqOpen().then(function (db) {
+    if (!db) return null;
+    return new Promise(function (resolve) {
       try {
-        var r = await fetch(url, { method: 'PUT', headers: { 'Content-Range': 'bytes ' + start + '-' + (end - 1) + '/' + total }, body: part });
-        if (r.status === 200 || r.status === 201) { var j = await r.json(); setProgress(100); return j.id; }
-        if (r.status !== 308) throw new Error('Mã lỗi ' + r.status);
-        res = { done: false };
-      } catch (e) {
-        if (start !== 0) throw e;
-        // trình duyệt chặn tải thẳng → chuyển sang gửi qua máy chủ, hỏi Drive đã nhận tới đâu
-        direct = false;
-        var st = await call('uploadChunk', { uploadUrl: url, total: total, query: true }, { quiet: true, silent: true });
-        if (st.done) { setProgress(100); return st.fileId; }
-        start = st.next || 0;
-        continue;
-      }
-    }
-    if (!direct) {
-      var b64 = await blobToB64(part);
-      res = await call('uploadChunk', { uploadUrl: url, start: start, total: total, b64: b64 }, { quiet: true, silent: true });
-      if (res.done) { setProgress(100); return res.fileId; }
-    }
-    start = end;
-    setProgress(pct(start, total));
+        var tx = db.transaction(store, mode), out = fn(tx.objectStore(store));
+        tx.oncomplete = function () { resolve(out && 'result' in out ? out.result : true); };
+        tx.onerror = tx.onabort = function () { resolve(null); };
+      } catch (e) { resolve(null); }
+    });
+  });
+}
+var VQ_FIELDS = ['id', 'bagId', 'lotId', 'baoNo', 'user', 'mime', 'url', 'sent', 'size', 'nParts', 'final', 'keep', 'status',
+  'fileId', 'saved', 'mem', 'relay', 'dur', 'createdAt'];
+function vqSave(job) {
+  if (job.dead) return Promise.resolve();
+  var rec = {}; VQ_FIELDS.forEach(function (k) { rec[k] = job[k]; });
+  return vqTx('jobs', 'readwrite', function (st) { st.put(rec); });
+}
+function vqNew(bag, mime, mem) {
+  var job = { id: 'V' + Date.now() + Math.random().toString(36).slice(2, 6), bagId: bag && bag.bagId, lotId: S.lotId,
+    baoNo: bag && bag.baoNo, user: S.user && S.user.username, mime: mime || 'video/mp4', url: '', sent: 0, size: 0, nParts: 0,
+    final: false, keep: false, status: 'rec', fileId: '', saved: false, mem: !!mem, relay: false, dur: 0, createdAt: Date.now(),
+    parts: [], err: '', fails: 0, directFails: 0 };
+  VQ.jobs.push(job);
+  if (bag && !bag.bagId && bag.ready) bag.ready.then(function () { job.bagId = bag.bagId; job.baoNo = bag.baoNo; vqSave(job); vqKick(); });
+  vqSave(job); vqBar();
+  return job;
+}
+function vqAdd(job, blob) {
+  if (job.dead) return;
+  var seq = job.nParts++;
+  job.parts.push(blob); job.size += blob.size;
+  if (!job.mem) {
+    vqTx('parts', 'readwrite', function (st) { st.put({ job: job.id, seq: seq, blob: blob }); }).then(function (ok) {
+      if (ok === null && !VQ.warnedDisk) { VQ.warnedDisk = true; toast('Máy không lưu tạm được video (bộ nhớ đầy?). Video vẫn tải, nhưng đừng tắt app khi chưa tải xong.', true); }
+    });
   }
-  throw new Error('Không nhận được xác nhận từ Drive');
+  vqSave(job); vqKick();
+}
+function vqDrop(job) {
+  job.dead = true;
+  VQ.jobs = VQ.jobs.filter(function (j) { return j !== job; });
+  job.parts = [];
+  vqTx('jobs', 'readwrite', function (st) { st.delete(job.id); });
+  vqTx('parts', 'readwrite', function (st) { st.delete(IDBKeyRange.bound([job.id, 0], [job.id, Infinity])); });
+  vqBar();
+}
+function vqBusy() { return VQ.jobs.some(function (j) { return !j.dead && j.keep && (!j.fileId || j.saved); }); }
+function vqKick() { if (!VQ.running) vqLoop(); vqBar(); }
+function vqSleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+/* Việc tiếp theo cần làm của 1 video (null = chưa có gì để làm) */
+function vqWork(j) {
+  if (j.dead || !S.token) return null;
+  if (j.fileId) return j.saved ? 'link' : null;
+  if (!j.bagId) return null;
+  if (j.status === 'rec' && !REC) return null;   // đoạn quay dở sau khi mở lại app: chờ hỏi giữ / bỏ
+  if (!j.url) return j.keep || j.size >= VQ_MIN ? 'session' : null;
+  if (j.final && j.keep) return 'send';
+  return j.size - j.sent >= VQ_MIN ? 'send' : null;
+}
+async function vqLoop() {
+  if (VQ.running) return;
+  VQ.running = true;
+  try {
+    while (true) {
+      var todo = VQ.jobs.slice().sort(function (a, b) { return a.createdAt - b.createdAt; }).filter(vqWork);
+      if (!todo.length) break;
+      if (navigator.onLine === false) { todo[0].err = 'Điện thoại đang mất mạng'; vqShow(todo[0]); break; }   // có mạng lại sẽ tự chạy tiếp
+      // lần lượt từng video (cũ trước); video đang lỗi thì tạm nhường video khác, chờ rồi thử lại
+      var now = Date.now(), job = todo.filter(function (j) { return !(j.nextAt > now); })[0];
+      if (!job) { await vqSleep(Math.max(200, Math.min.apply(null, todo.map(function (j) { return j.nextAt; })) - now)); continue; }
+      try {
+        await vqStep(job, vqWork(job));
+        job.fails = 0; job.err = ''; job.nextAt = 0;
+      } catch (e) {
+        job.fails++; job.err = (e && e.message) || 'mất kết nối';
+        job.nextAt = Date.now() + Math.min(30000, 2000 * job.fails);
+      }
+      vqShow(job);
+    }
+  } finally {
+    VQ.running = false; vqBar();
+    if (!REC && !vqBusy()) keepAwake(false);
+  }
+}
+async function vqStep(job, what) {
+  if (what === 'link') {
+    var r = await call('setBagVideo', { bagId: job.bagId, videoId: job.fileId }, { quiet: true, silent: true });
+    if (!job.dead) { vqDrop(job); if (r && r.ok && S.view === 'lot' && S.lotId === job.lotId && !editing()) loadLot(); }
+    return;
+  }
+  if (what === 'session') {
+    var s = await call('startVideoUpload', { bagId: job.bagId, mimeType: job.mime, size: job.final && job.keep ? job.size : 0, origin: location.origin }, { quiet: true, silent: true });
+    if (job.dead) return;
+    job.url = s.uploadUrl; job.sent = 0; vqSave(job); keepAwake(true);
+    return;
+  }
+  // gửi 1 đoạn
+  var fin = job.final && job.keep, total = fin ? job.size : '*';
+  var max = job.relay ? VQ_RELAY : VQ_MAX, n = Math.min(job.size - job.sent, max);
+  if (!fin || job.sent + n < job.size) n = Math.floor(n / VQ_Q) * VQ_Q;   // đoạn giữa phải là bội số 256 KB
+  var last = fin && job.sent + n === job.size;
+  var body = new Blob(job.parts, { type: job.mime }).slice(job.sent, job.sent + n);
+  var range = n ? 'bytes ' + job.sent + '-' + (job.sent + n - 1) + '/' + total : 'bytes */' + total;
+  var res;
+  if (!job.relay) {
+    var resp;
+    try { resp = await fetch(job.url, { method: 'PUT', headers: { 'Content-Range': range }, body: body }); }
+    catch (e) {
+      var netOk = await vqResync(job, total);
+      // máy chủ vẫn gọi được mà tải thẳng lên Drive lỗi ngay đoạn đầu → trình duyệt chặn tải thẳng, chuyển sang gửi qua máy chủ
+      if (netOk && job.sent === 0 && !job.fileId && ++job.directFails >= 2) { job.relay = true; vqSave(job); return; }
+      throw new Error('Mất kết nối');
+    }
+    if (resp.status === 200 || resp.status === 201) res = { done: true, fileId: (await resp.json()).id };
+    else if (resp.status === 308) res = { done: false };
+    else if (resp.status === 404 || resp.status === 410) { job.url = ''; job.sent = 0; vqSave(job); throw new Error('Phiên tải hết hạn, tải lại từ đầu'); }
+    else { await vqResync(job, total); throw new Error('Drive báo lỗi ' + resp.status); }
+  } else {
+    res = n ? await call('uploadChunk', { uploadUrl: job.url, start: job.sent, total: total, b64: await blobToB64(body) }, { quiet: true, silent: true })
+            : await call('uploadChunk', { uploadUrl: job.url, total: total, query: true }, { quiet: true, silent: true });
+  }
+  if (job.dead) return;
+  if (res.done) return vqDone(job, res.fileId);
+  if (last) { await vqResync(job, total); if (!job.fileId) throw new Error('Drive chưa nhận đủ video'); return; }   // hỏi lại đã nhận tới đâu
+  job.sent += n; vqSave(job);
+}
+/* Hỏi Drive đã nhận được tới byte nào (qua máy chủ, vì trình duyệt không đọc được) */
+async function vqResync(job, total) {
+  try {
+    var st = await call('uploadChunk', { uploadUrl: job.url, total: total, query: true }, { quiet: true, silent: true });
+    if (job.dead) return;
+    if (st.done) { vqDone(job, st.fileId); return true; }
+    job.sent = Math.min(st.next || 0, job.size); vqSave(job);
+    return true;
+  } catch (e) { return false; }   // mất mạng: lần sau hỏi lại
+}
+function vqDone(job, fileId) {
+  job.fileId = fileId; job.status = 'done'; job.parts = [];
+  vqSave(job);
+  vqTx('parts', 'readwrite', function (st) { st.delete(IDBKeyRange.bound([job.id, 0], [job.id, Infinity])); });
+  var b = S.bag;
+  if (b && b.job === job) {   // bao đang mở trên màn hình: gắn video ngay
+    b.videoId = fileId; b.job = null;
+    if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
+  }
+  // bao chưa chốt: giữ bản ghi (có mã file) tới khi chốt bao, lỡ tắt app thì mở lại bao vẫn gắn được video
+  toast('Video bao ' + (job.baoNo || '') + ' đã lưu lên Drive.');
+}
+
+/* Khi mở bao (số bao từ máy chủ): gắn video quay dở / đang tải của chính bao này trên máy */
+function vqAttach(bag) {
+  var j = VQ.jobs.filter(function (x) { return !x.dead && x.bagId === bag.bagId && !x.saved; })[0];
+  if (!j) return;
+  if (j.fileId) { bag.videoId = j.fileId; vqDrop(j); }
+  else { if (j.status === 'rec') { j.status = 'hold'; j.final = true; vqSave(j); } bag.job = j; }
+  if (S.bag === bag && S.view === 'bag') viewBag();
+}
+
+/* Mở app: nạp các video còn dở trên máy, tải tiếp */
+function vqInit() {
+  if (VQ.inited || !S.user) return;
+  VQ.inited = true;
+  vqTx('jobs', 'readonly', function (st) { return st.getAll(); }).then(function (list) {
+    list = list || [];
+    var old = Date.now() - 7 * 864e5;
+    list.forEach(function (rec) {
+      if (VQ.jobs.some(function (j) { return j.id === rec.id; })) return;
+      var job = Object.assign({ parts: [], err: '', fails: 0, directFails: 0 }, rec);
+      if (job.createdAt < old || (job.mem && !job.fileId) || (job.user && S.user && job.user !== S.user.username && !job.saved)) {
+        VQ.jobs.push(job); vqDrop(job); return;   // quá 7 ngày / video chọn từ máy mà chưa tải xong (chọn lại) / của người khác
+      }
+      if (job.status === 'rec') { job.status = 'hold'; job.final = true; }   // app tắt khi đang quay
+      VQ.jobs.push(job);
+      if (job.fileId) return;
+      vqTx('parts', 'readonly', function (st) { return st.getAll(IDBKeyRange.bound([job.id, 0], [job.id, Infinity])); }).then(function (parts) {
+        parts = (parts || []).sort(function (a, b) { return a.seq - b.seq; });
+        job.parts = parts.map(function (p) { return p.blob; });
+        job.size = job.parts.reduce(function (s, b) { return s + b.size; }, 0);
+        job.nParts = parts.length ? parts[parts.length - 1].seq + 1 : 0;
+        if (job.sent > job.size) job.sent = 0;
+        if (!job.size) { vqDrop(job); return; }
+        vqSave(job); vqKick();
+      });
+    });
+    vqBar();
+  });
+}
+
+/* Kiểm tra máy còn chỗ lưu tạm video (cần ~300 MB) */
+function vqSpaceOk() {
+  if (!navigator.storage || !navigator.storage.estimate) return Promise.resolve(true);
+  try { if (navigator.storage.persist) navigator.storage.persist().catch(function () {}); } catch (e) { /* bỏ qua */ }
+  return navigator.storage.estimate().then(function (e) {
+    var free = (e.quota || 0) - (e.usage || 0);
+    if (!e.quota || free > 300 * 1048576) return true;
+    return ask('Máy gần hết chỗ lưu tạm video (còn ' + Math.round(free / 1048576) + ' MB). Nên chờ các video đang tải xong, hoặc dọn bớt bộ nhớ máy. Vẫn quay?', { ok: 'Vẫn quay' });
+  }).catch(function () { return true; });
+}
+
+/* Dòng nhỏ trên cùng: còn bao nhiêu video đang tải */
+function vqBar() {
+  var act = VQ.jobs.filter(function (j) { return !j.dead && j.keep && !j.fileId; });
+  var el = $('vqbar');
+  if (!act.length) { if (el) el.hidden = true; return; }
+  if (!el) { el = document.createElement('div'); el.id = 'vqbar'; el.className = 'vqbar'; el.onclick = function () { vqKick(); }; document.body.appendChild(el); }
+  var j = act.sort(function (a, b) { return a.createdAt - b.createdAt; })[0];
+  var bad = act.some(function (x) { return x.err; });
+  el.className = 'vqbar' + (bad ? ' bad' : '');
+  el.textContent = (bad ? '⚠️ ' : '⏳ ') + 'Đang tải ' + act.length + ' video · Bao ' + (j.baoNo || '…') + ' ' + pct(j.sent, j.size) + '%' +
+    (bad ? ' · ' + (act.filter(function (x) { return x.err; })[0].err) + ', sẽ tự thử lại' : '');
+  el.hidden = false;
+}
+function vqText(j) {
+  if (j.err) return '⚠️ ' + esc(j.err) + ' · Video vẫn lưu trong máy, tự tải tiếp khi có mạng.';
+  return 'Đang tải lên Drive ' + pct(j.sent, j.size) + '% · Có thể chốt bao luôn, video tự tải tiếp.';
+}
+function vqShow(job) {
+  vqBar();
+  if (!S.bag || S.bag.job !== job) return;
+  var bar = $('vbar'), txt = $('vtxt');
+  if (bar) bar.style.width = pct(job.sent, job.size) + '%';
+  if (txt) txt.innerHTML = vqText(job);
+}
+/* Ô video của bao (bước 02) */
+function vidBox(b) {
+  var j = b.job;
+  if (b.videoId) return '<div class="vidok">✓ Video đã lưu lên Drive<span class="grow"></span><button type="button" class="btn sm" onclick="redoVideo()">' + (CAN_RECORD ? 'Quay lại' : 'Chọn lại') + '</button></div>';
+  if (j && j.status === 'hold') return '<div class="stack"><div class="bold" style="color:var(--bad)">Quay bị gián đoạn</div>' +
+    '<div class="small">Đã quay được <b>' + mmss(j.dur || 0) + '</b> (' + mb(j.size) + ' MB) thì bị ngắt (cuộc gọi, chuyển app hoặc tắt máy). Phần đã quay vẫn còn.</div>' +
+    '<div class="row wrapflex"><button type="button" class="btn pri sm" onclick="keepCutVideo()">Giữ đoạn đã quay</button>' +
+    '<button type="button" class="btn sm" onclick="redoCutVideo()">Quay lại từ đầu</button></div></div>';
+  if (j) return '<div class="stack"><div class="vidok">✓ Đã quay xong · ' + mb(j.size) + ' MB<span class="grow"></span><button type="button" class="btn sm" onclick="redoVideo()">' +
+    (CAN_RECORD ? 'Quay lại' : 'Chọn lại') + '</button></div>' +
+    '<div class="bar"><div id="vbar" style="width:' + pct(j.sent, j.size) + '%"></div></div><div class="small muted" id="vtxt">' + vqText(j) + '</div></div>';
+  if (CAN_RECORD) return '<button type="button" class="drop" onclick="recordVideo()" style="color:var(--pri-ink)">' + ICON.video +
+    '<div class="bold">Quay video ngay</div><div class="muted small">Bắt buộc · Quay Full HD ngay trong app, vừa quay vừa tự lưu lên Drive</div></button>' +
+    '<div class="center small"><a href="#" onclick="$(\'vfile\').click();return false">hoặc chọn video đã quay sẵn</a></div>';
+  return '<button type="button" class="drop" onclick="$(\'vfile\').click()" style="color:var(--pri-ink)">' + ICON.up +
+    '<div class="bold">Chọn video đã quay</div><div class="muted small">Bắt buộc · Quay bằng app Camera trước (1080p), rồi bấm đây chọn video</div></button>' +
+    '<div class="center small"><a href="#" onclick="$(\'vcap\').click();return false">hoặc quay nhanh bằng máy quay</a>' +
+    (IS_IOS ? '<div class="muted" style="margin-top:2px">Trên iPhone, quay nhanh sẽ bị mờ, chỉ dùng khi gấp</div>' : '') + '</div>';
 }
 
 function blobToB64(blob) {

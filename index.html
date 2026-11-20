@@ -436,20 +436,39 @@ window.addEventListener('beforeunload', function (e) {
   if (S.uploading) { e.preventDefault(); e.returnValue = ''; }
 });
 
+/* Mở app: hiện màn hình ngay từ dữ liệu đã lưu trên máy, hỏi máy chủ chạy ngầm phía sau
+   (mỗi lần hỏi Google Apps Script mất 2–10 giây, không bắt người dùng nhìn "Đang tải…"). */
 function boot() {
   S.token = load('godfbs_token');
-  if (S.token) {
+  var savedUser = null;
+  try { savedUser = JSON.parse(load('godfbs_user') || 'null'); } catch (e) { savedUser = null; }
+  if (S.token && savedUser) {
+    // Đã đăng nhập trên máy này: vào thẳng danh sách lô, kiểm tra phiên ngầm
+    S.user = savedUser; S.kho = load('godfbs_kho'); go('lots');
     call('me', {}, { quiet: true, silent: true }).then(function (d) {
-      S.user = d.user; S.tinhTrang = d.tinhTrang; S.kho = load('godfbs_kho'); go('lots');
+      var roleChanged = !S.user || S.user.role !== d.user.role;
+      S.user = d.user; S.tinhTrang = d.tinhTrang || S.tinhTrang;
+      store('godfbs_user', JSON.stringify(d.user));
+      if (roleChanged && S.view === 'lots' && S.lots && S.lots.length && !editing()) viewLots(true);
+    }).catch(function () { /* hết phiên thì call() đã tự đưa về đăng nhập; mất mạng thì vẫn dùng dữ liệu đã lưu */ });
+  } else if (S.token) {
+    // Máy đăng nhập từ bản cũ (chưa lưu người dùng): làm như trước, 1 lần duy nhất
+    call('me', {}, { quiet: true, silent: true }).then(function (d) {
+      S.user = d.user; S.tinhTrang = d.tinhTrang; S.kho = load('godfbs_kho');
+      store('godfbs_user', JSON.stringify(d.user)); store('godfbs_has_users', '1');
+      go('lots');
     }).catch(function () { logoutLocal(); });
+  } else if (load('godfbs_has_users') === '1') {
+    // Máy này đã từng thấy có tài khoản: hiện ô đăng nhập ngay, không cần hỏi máy chủ
+    viewLogin();
   } else {
     call('status', {}, { quiet: true }).then(function (d) {
-      if (d.hasUsers) viewLogin(); else viewSetup();
+      if (d.hasUsers) { store('godfbs_has_users', '1'); viewLogin(); } else viewSetup();
     });
   }
 }
 
-function logoutLocal() { if (S.user) store(lotsKey(), null); S.token = null; S.user = null; S.lots = []; S.lotCache = {}; store('godfbs_token', null); viewLogin(); }
+function logoutLocal() { if (S.user) store(lotsKey(), null); S.token = null; S.user = null; S.lots = []; S.lotCache = {}; store('godfbs_token', null); store('godfbs_user', null); viewLogin(); }
 function logout() {
   (S.uploading ? ask('Video đang tải lên. Vẫn đăng xuất?') : Promise.resolve(true)).then(function (ok) {
     if (!ok) return;
@@ -462,6 +481,7 @@ function afterLogin(d) {
   S.kho = load('godfbs_kho');
   S.token = d.token; S.user = d.user; S.tinhTrang = d.tinhTrang || S.tinhTrang;
   store('godfbs_token', d.token);
+  store('godfbs_user', JSON.stringify(d.user)); store('godfbs_has_users', '1');
   go('lots');
 }
 

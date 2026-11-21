@@ -141,11 +141,19 @@ nav.sbar .who{padding:4px 10px 8px;display:flex;flex-direction:column}
 nav.sbar .who b{color:#fff;font-size:14px}
 nav.sbar .who span{font-size:12px;color:var(--ink-muted)}
 .mtop,.navmask{display:none}
+.navfab{display:none}
+nav.sbar{transition:transform .2s ease}
+nav.sbar .navhide{margin-left:auto;flex:none;background:rgba(255,255,255,.12);border:0;color:#fff;width:34px;height:34px;border-radius:9px;font-size:18px;font-weight:800;cursor:pointer;line-height:1}
+nav.sbar .navhide:hover{background:rgba(255,255,255,.22)}
+body.navmin .navfab{display:flex;position:fixed;left:0;top:50%;transform:translateY(-50%);width:26px;height:64px;border:0;border-radius:0 14px 14px 0;background:var(--ink);color:#fff;font-size:22px;font-weight:800;align-items:center;justify-content:center;z-index:22;opacity:.88;cursor:pointer;box-shadow:2px 0 10px rgba(0,0,0,.18);padding:0}
+body.navmin nav.sbar{transform:translateX(-102%)}
 .navno{display:none}
 @media (min-width:900px){
   body.hasnav{padding-left:272px}
   body.hasnav .wrap{padding:28px 28px 120px}
   body.hasnav .sticky{left:272px}
+  body.hasnav.navmin{padding-left:0}
+  body.hasnav.navmin .sticky{left:0}
 }
 @media (max-width:899px){
   .mtop{display:flex;align-items:center;gap:10px;position:fixed;top:0;left:0;right:0;z-index:20;background:var(--ink);color:#fff;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));min-height:56px}
@@ -154,6 +162,11 @@ nav.sbar .who span{font-size:12px;color:var(--ink-muted)}
   .mtop .mt small{display:block;font-size:12px;font-weight:600;color:var(--ink-muted)}
   nav.sbar{width:min(300px,86vw);transform:translateX(-102%);transition:transform .2s ease}
   nav.sbar .navx{display:block}
+  nav.sbar .navhide{display:none}
+  .mtop .mfull{margin-left:auto}
+  body.navmin .mtop{display:none}
+  body.hasnav.navmin{padding-top:0}
+  body.navmin.navopen nav.sbar{transform:none}
   body.hasnav{padding-top:56px}
   body.navopen nav.sbar{transform:none}
   body.navopen .navmask{display:block;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:25}
@@ -453,6 +466,7 @@ var ICON = {
   chev: '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   folder: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
   doc: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>',
+  expand: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
   grid: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
   gear: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>',
   box: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5"/><path d="M12 12v9"/></svg>',
@@ -486,7 +500,7 @@ function pct(a, b) { return b ? Math.min(100, Math.round(a * 100 / b)) : 0; }
 function render(html, keep) {
   var y = window.scrollY;
   $('app').innerHTML = html; window.scrollTo(0, keep ? y : 0);
-  document.body.classList.toggle('hasnav', html.indexOf('<nav class="sbar"') >= 0); document.body.classList.remove('navopen');
+  document.body.classList.toggle('hasnav', html.indexOf('<nav class="sbar"') >= 0); document.body.classList.remove('navopen'); document.body.classList.toggle('navmin', navMinOn());
 }
 
 /* ===== THANH CÔNG CỤ BÊN TRÁI (chia thư mục) =====
@@ -500,6 +514,11 @@ function navFold(k, e) {
   if (e) e.stopPropagation();
   var f = navFolds(), el0 = document.querySelector('.nf[data-k="' + k + '"]'); f[k] = !(el0 && el0.classList.contains('open')); store('godfbs_fold', JSON.stringify(f));
   var el = document.querySelector('nav.sbar'); if (el) el.outerHTML = navBar(S.navActive);
+}
+function navMinOn() { if (S.navMin === undefined) S.navMin = load('godfbs_navmin') === '1'; return !!S.navMin; }
+function navMin(on) {
+  S.navMin = !!on; store('godfbs_navmin', on ? '1' : null);
+  navOpen(false); document.body.classList.toggle('navmin', !!on);
 }
 function navOpen(on) { document.body.classList.toggle('navopen', !!on); }
 function navKho(k, tab) {
@@ -544,6 +563,7 @@ function navBar(active) {
   if (isAdmin()) fbs += navItem(v === 'import', "navGo('import')", ICON.up, 'Tải file gốc mới');
   var html = '<nav class="sbar" aria-label="Menu">' +
     '<div class="brand">' + ICON.logoSm + '<div><div class="nm">GM Hub</div><div class="sb">Kho Godmother</div></div>' +
+    '<button type="button" class="navhide" title="Ẩn thanh menu" aria-label="Ẩn thanh menu" onclick="navMin(true)">«</button>' +
     '<button type="button" class="navx" aria-label="Đóng menu" onclick="navOpen(false)">✕</button></div>' +
     '<div class="nscroll">' +
     '<div class="ngrp">Công việc</div>' +
@@ -559,7 +579,9 @@ function nav(active) {
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
   var where = S.view === 'users' ? 'Tài khoản' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
-    '<div class="mt">GM Hub<small>' + where + '</small></div></div>' +
+    '<div class="mt">GM Hub<small>' + where + '</small></div>' +
+    '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
+    '<button type="button" class="navfab" title="Hiện thanh menu" aria-label="Hiện thanh menu" onclick="navMin(false)">›</button>' +
     '<div class="navmask" onclick="navOpen(false)"></div>' + navBar(active);
 }
 

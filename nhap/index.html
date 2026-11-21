@@ -82,6 +82,11 @@ label.f{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:70
 .pick{cursor:pointer;width:100%;text-align:left;background:var(--surface);border:1.5px solid var(--line);border-radius:12px;padding:12px 14px}
 .pick.on{border:2.5px solid var(--pri);background:var(--tint)}
 .pick.dim{opacity:.55}
+/* Barcode dùng chung nhiều SKU (bản thường / Premium): phân loại chữ to, Premium tô nổi */
+.chip.twin{font-size:12px;padding:3px 9px;white-space:normal}
+.plbig{font-size:16px;font-weight:800;color:var(--text);margin-top:2px}
+.prem{background:var(--ink);color:var(--on-ink);border-radius:6px;padding:0 6px;font-weight:800}
+.chooser .grouphd{font-size:13px;font-weight:800;color:var(--text2);margin:6px 2px 0}
 /* */.drop{border:2px dashed var(--dash);border-radius:14px;padding:18px;display:flex;flex-direction:column;align-items:center;gap:6px;text-align:center;background:var(--tint);cursor:pointer;width:100%}
 .thumbs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .thumbs img,.thumbs .add{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;background:var(--track)}
@@ -713,8 +718,8 @@ function showLot(d) {
   S.lotId = d.lot.lotId; S.view = 'lot'; S.detail = d; S.lotCache[d.lot.lotId] = d; viewLot();
 }
 /** Ghi file gốc ngầm phía sau, chỉ báo khi có lỗi. */
-function syncLot(lotId) {
-  call('syncLot', { lotId: lotId }, { quiet: true, silent: true }).then(function (r) {
+function syncLot(lotId, reset) {
+  call('syncLot', { lotId: lotId, reset: reset || [] }, { quiet: true, silent: true }).then(function (r) {
     if (r && r.error) toast('Chưa ghi được vào file gốc: ' + r.error + ' (Quản trị bấm "Ghi vào file gốc" để ghi lại.)', true);
   }).catch(function () { toast('Chưa ghi được vào file gốc (mất kết nối). Quản trị bấm "Ghi vào file gốc" để ghi lại.', true); });
 }
@@ -734,6 +739,15 @@ function loadLot() {
     syncing(false); toast('Chưa cập nhật được lô (mất kết nối).', true);
   });
 }
+
+/* Barcode dùng chung cho nhiều SKU (vd bản thường + Premium): nhãn cảnh báo + phân loại chữ to, chữ Premium tô nổi */
+function twinTag(i) { return i && i.twin ? '<span class="chip warn twin">⚠️ Chung barcode · xem kỹ phân loại</span>' : ''; }
+function plHtml(pl) { return esc(pl).replace(/premium/ig, function (m) { return '<span class="prem">' + m + '</span>'; }); }
+function plLine(i) {
+  return i.twin ? '<div class="plbig">' + plHtml(i.phanLoai) + '</div>'
+    : '<div class="small" style="color:var(--text2)">' + esc(i.phanLoai) + '</div>';
+}
+function itemLabel(i) { return (i.barcode || i.sku) + (i.twin ? ' (' + i.phanLoai + ')' : ''); }
 
 function skuChip(i, lotDone) {
   if (i.slDong >= i.slCan && i.slCan > 0) return '<span class="chip ok">Đã đủ</span>';
@@ -760,17 +774,22 @@ function viewLot(keep) {
 
   var items = d.items.map(function (i) {
     return '<div class="card sku"><div class="row between" style="align-items:flex-start"><div class="grow">' +
-      '<div class="bold">' + esc(i.barcode || i.sku) + '</div><div class="muted small">' + esc(i.phanLoai) + ' · SKU ' + esc(i.sku) + '</div></div>' +
+      '<div class="bold">' + esc(i.barcode || i.sku) + '</div>' +
+      (i.twin ? '<div class="small bold">' + plHtml(i.phanLoai) + '</div><div class="muted small">SKU ' + esc(i.sku) + '</div>'
+        : '<div class="muted small">' + esc(i.phanLoai) + ' · SKU ' + esc(i.sku) + '</div>') + twinTag(i) + '</div>' +
       skuChip(i, done) + '</div><div class="row between small" style="color:var(--text2)"><span>Đóng ' + i.slDong + ' / ' + i.slCan + ' pcs</span>' +
       '<span>' + (i.maKien ? 'Kiện ' + esc(i.maKien) : '') + '</span></div></div>';
   }).join('');
 
   var bags = d.bags.map(function (b) {
-    return '<tr><td>' + b.baoNo + '</td><td>' + esc(b.barcode) + '</td><td class="num">' + b.qty + '</td><td>' + esc(b.tinhTrang) + '</td>' +
+    return '<tr><td>' + b.baoNo + '</td><td>' + esc(b.barcode) +
+      (b.phanLoai ? '<div class="small' + (b.twin ? ' bold' : ' muted') + '">' + (b.twin ? '⚠️ ' + plHtml(b.phanLoai) : esc(b.phanLoai)) + '</div>' : '') +
+      '</td><td class="num">' + b.qty + '</td><td>' + esc(b.tinhTrang) + '</td>' +
       '<td>' + esc(b.user) + '</td><td>' + esc(b.createdAt) + '</td>' +
       (isAdmin() ? '<td>' + (b.cleaned ? '<span class="muted">Đã xóa sau 30 ngày</span>' :
         (b.videoPending ? '<span class="chip warn">⏳ Video đang tải</span>' : '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a>') + ' · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>') +
-        (!done ? ' · <a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : '') + '</td>'
+        (!done ? ' · <a href="#" onclick="showChangeBag(\'' + esc(b.bagId) + '\');return false">Đổi hàng</a>' +
+          ' · <a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : '') + '</td>'
         : '<td>' + evidenceChip(b) + '</td>') + '</tr>';
   }).join('');
 
@@ -861,7 +880,51 @@ function deleteLot() {
 function delBag(id, no) {
   ask('Xóa bao số ' + no + '? Video và ảnh của bao sẽ vào thùng rác.', { ok: 'Xóa bao', danger: true }).then(function (ok) {
     if (!ok) return;
-    call('deleteBag', { bagId: id }).then(function (d) { toast('Đã xóa bao.'); showLot(d); syncLot(S.lotId); });
+    var old = (S.detail.bags.filter(function (b) { return b.bagId === id; })[0] || {}).sku;
+    call('deleteBag', { bagId: id }).then(function (d) { toast('Đã xóa bao.'); showLot(d); syncLot(S.lotId, old ? [old] : []); });
+  });
+}
+
+/* Quản trị viên đổi hàng (SKU) của bao đã chốt — dùng khi nhân viên chọn nhầm loại cùng barcode (bản thường / Premium). */
+function showChangeBag(bagId) {
+  var b = S.detail.bags.filter(function (x) { return x.bagId === bagId; })[0];
+  if (!b) return;
+  var cur = S.detail.items.filter(function (i) { return i.sku === b.sku; })[0] || { barcode: b.barcode, phanLoai: b.phanLoai, sku: b.sku };
+  var bc = normCode(cur.barcode);
+  var others = S.detail.items.filter(function (i) { return i.sku !== b.sku; });
+  var twins = bc ? others.filter(function (i) { return normCode(i.barcode) === bc; }) : [];
+  var rest = others.filter(function (i) { return twins.indexOf(i) < 0; });
+  var btn = function (i) {
+    return '<button type="button" class="pick" onclick="doChangeBag(\'' + esc(bagId) + '\',\'' + esc(i.sku) + '\')">' +
+      '<div class="bold" style="font-size:14px">' + esc(i.barcode || i.sku) + '</div>' + plLine(i) +
+      '<div class="muted small">SKU ' + esc(i.sku) + ' · Cần ' + i.slCan + ' · Đã đóng ' + i.slDong + '</div></button>';
+  };
+  var box = document.createElement('div');
+  box.className = 'scanbox'; box.id = 'scanbox';
+  box.innerHTML = '<div class="scanhead"><div class="bold">Đổi hàng của bao số ' + b.baoNo + '</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div class="chooser"><div class="stack" style="gap:8px">' +
+    '<div class="card stack" style="gap:4px"><div class="muted small">Đang ghi là</div>' +
+    '<div class="bold" style="font-size:18px">' + esc(cur.barcode || cur.sku) + '</div><div class="plbig">' + plHtml(cur.phanLoai) + '</div>' +
+    '<div class="muted small">SKU ' + esc(cur.sku) + ' · ' + b.qty + ' pcs</div>' +
+    '<div class="small">Chọn đúng hàng của bao này bên dưới. Video và ảnh của bao giữ nguyên.</div></div>' +
+    (twins.length ? '<div class="grouphd">Cùng barcode ' + esc(cur.barcode) + '</div>' + twins.map(btn).join('') : '') +
+    '<div class="grouphd">Hàng khác trong lô</div>' + rest.map(btn).join('') +
+    '</div></div>';
+  var old = $('scanbox'); if (old) old.remove();
+  document.body.appendChild(box);
+}
+function doChangeBag(bagId, sku) {
+  var b = S.detail.bags.filter(function (x) { return x.bagId === bagId; })[0];
+  var it = S.detail.items.filter(function (i) { return i.sku === sku; })[0];
+  if (!b || !it) return;
+  closeScanner();   // đóng bảng chọn trước để hộp hỏi không bị che
+  ask('Đổi bao số ' + b.baoNo + ' (' + b.qty + ' pcs) sang ' + itemLabel(it) + ' · SKU ' + it.sku + '?', { ok: 'Đổi hàng' }).then(function (ok) {
+    if (!ok) return;
+    call('changeBagSku', { bagId: bagId, sku: sku }, { text: 'Đang đổi hàng của bao…' }).then(function (r) {
+      toast('Đã đổi bao số ' + b.baoNo + ' sang ' + itemLabel(it) + '. Nhớ xuất lại phiếu xuất kho.');
+      showLot(r.detail);
+      syncLot(S.lotId, [r.oldSku]);
+    });
   });
 }
 
@@ -904,7 +967,7 @@ function viewBag() {
     var full = i.slDong >= i.slCan;
     return '<button type="button" class="pick ' + (b.sku === i.sku ? 'on' : '') + (full ? ' dim' : '') + '" onclick="pickSku(\'' + esc(i.sku) + '\')">' +
       '<div class="bold" style="font-size:14px">' + esc(i.barcode || i.sku) + '</div>' +
-      '<div class="small" style="color:var(--text2)">' + esc(i.phanLoai) + '</div>' +
+      plLine(i) + twinTag(i) +
       '<div class="muted small">SKU ' + esc(i.sku) + '</div>' +
       '<div class="small bold" style="margin-top:4px">Cần ' + i.slCan + ' · Đã đóng ' + i.slDong + ' · Còn ' + Math.max(0, i.slCan - i.slDong) + '</div></button>';
   }).join('');
@@ -924,7 +987,9 @@ function viewBag() {
 
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Chọn hàng &amp; số lượng</h3>' +
     (it ? '<div class="pick on"><div class="bagsku"><div class="grow"><div class="nm">' + esc(it.barcode || it.sku) + '</div>' +
-      '<div class="small" style="color:var(--text2)">' + esc(it.ten) + ' · ' + esc(it.phanLoai) + '</div><div class="muted small">SKU ' + esc(it.sku) + '</div></div>' +
+      (it.twin ? '<div class="plbig">' + plHtml(it.phanLoai) + '</div><div class="small" style="color:var(--text2)">' + esc(it.ten) + '</div>' + twinTag(it)
+        : '<div class="small" style="color:var(--text2)">' + esc(it.ten) + ' · ' + esc(it.phanLoai) + '</div>') +
+      '<div class="muted small">SKU ' + esc(it.sku) + '</div></div>' +
       '<button type="button" class="btn sm" onclick="S.bag.sku=null;S.bag.scanCode=null;viewBag()">Đổi</button></div>' +
       '<div class="need"><div>Cần<b>' + it.slCan + '</b></div><div>Đã đóng<b>' + it.slDong + '</b></div><div class="left">Còn<b>' + left + '</b></div></div></div>' +
       (b.scanCode && S.codes[b.scanCode] ? '<div class="small muted">Chọn bằng mã quét ' + esc(b.scanCode) +
@@ -1001,7 +1066,9 @@ function saveBag() {
   if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
   var it = bagItem();
   var over = it && it.slDong + Number(b.qty) > it.slCan;
-  (over ? ask('Tổng số lượng sẽ vượt số lượng cần (' + it.slCan + '). Vẫn chốt?') : Promise.resolve(true)).then(function (ok) {
+  var msg = !over ? '' : 'Tổng số lượng sẽ vượt số lượng cần (' + it.slCan + ').' +
+    (it.twin ? ' Barcode ' + it.barcode + ' dùng chung cho nhiều loại — kiểm tra lại đã chọn đúng phân loại "' + it.phanLoai + '" chưa.' : '') + ' Vẫn chốt?';
+  (over ? ask(msg) : Promise.resolve(true)).then(function (ok) {
     if (ok) doSaveBag(b);
   });
 }
@@ -1081,25 +1148,37 @@ function refreshCodes() {
     S.codes = m; store('godfbs_codes', JSON.stringify(m));
   }).catch(function () { /* mất mạng thì dùng bảng đã nhớ */ });
 }
-function itemByCode(code) {
-  if (!S.detail) return null;
+/**
+ * Các hàng trong lô khớp với mã vừa quét.
+ * - Quét QR mã SKU (Warehouse SKU ID): đúng 1 hàng.
+ * - Quét barcode (hoặc mã bao bì đã ghép): MỌI SKU dùng barcode đó (bản thường + Premium…) → nhiều hàng thì phải hỏi.
+ */
+function itemsByCode(code) {
+  if (!S.detail) return [];
   var items = S.detail.items;
-  var hit = items.filter(function (i) { return normCode(i.barcode) === code || normCode(i.sku) === code; })[0];
-  if (hit) return hit;
+  var bySku = items.filter(function (i) { return normCode(i.sku) === code; });
+  if (bySku.length) return bySku;
+  var bc = items.some(function (i) { return normCode(i.barcode) === code; }) ? code : '';
   var m = S.codes[code];
-  if (!m) return null;
-  return items.filter(function (i) { return (m.barcode && normCode(i.barcode) === normCode(m.barcode)) || (m.sku && String(i.sku) === String(m.sku)); })[0] || null;
+  if (!bc && m) {
+    bc = normCode(m.barcode);
+    if (!bc || !items.some(function (i) { return normCode(i.barcode) === bc; })) {
+      return items.filter(function (i) { return m.sku && String(i.sku) === String(m.sku); });
+    }
+  }
+  return bc ? items.filter(function (i) { return normCode(i.barcode) === bc; }) : [];
 }
 
 function gotScan(text) {
   if (!SCAN || SCAN.done || !S.bag || !S.detail) return;
   var code = normCode(text);
-  var hit = itemByCode(code);
-  if (hit) {
+  var hits = itemsByCode(code);
+  if (hits.length) {
     SCAN.done = true;
     try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
+    if (hits.length > 1) return showTwinChooser(code, hits);   // barcode dùng chung: bắt chọn đúng loại
     closeScanner();
-    choseScanned(code, hit);
+    choseScanned(code, hits[0]);
     return;
   }
   var m = S.codes[code];
@@ -1135,7 +1214,34 @@ function showUnknownCode(code) {
 function choseScanned(code, it) {
   S.bag.q = ''; S.bag.scanCode = code;
   pickSku(it.sku);
-  toast('Đã chọn ' + (it.barcode || it.sku));
+  toast('Đã chọn ' + itemLabel(it));
+}
+
+/* Quét ra barcode dùng chung cho nhiều SKU: không tự chọn, hiện các loại để nhân viên chọn theo phân loại trên hàng thật */
+function showTwinChooser(code, list) {
+  var s = SCAN; SCAN = null;
+  if (s && s.qr) { try { s.qr.stop().catch(function () {}); } catch (e) { /* bỏ qua */ } }
+  var box = $('scanbox');
+  if (!box) { box = document.createElement('div'); box.className = 'scanbox'; box.id = 'scanbox'; document.body.appendChild(box); }
+  box.innerHTML = '<div class="scanhead"><div class="bold">Chọn đúng loại hàng</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div class="chooser"><div class="stack" style="gap:8px">' +
+    '<div class="card stack" style="gap:4px"><div class="muted small">Barcode vừa quét</div>' +
+    '<div class="bold" style="font-size:20px;word-break:break-all">' + esc(list[0].barcode || code) + '</div>' +
+    '<div class="small"><b>⚠️ Barcode này dùng cho ' + list.length + ' loại khác nhau.</b> Xem kỹ phân loại trên hàng thật (có <b>Premium</b> hay không) rồi chọn đúng loại.</div></div>' +
+    list.map(function (i) {
+      return '<button type="button" class="pick' + (i.slDong >= i.slCan ? ' dim' : '') + '" onclick="pickTwin(\'' + esc(code) + '\',\'' + esc(i.sku) + '\')">' +
+        '<div class="plbig" style="font-size:20px">' + plHtml(i.phanLoai) + '</div>' +
+        '<div class="small" style="color:var(--text2)">' + esc(i.ten) + '</div>' +
+        '<div class="muted small">SKU ' + esc(i.sku) + '</div>' +
+        '<div class="small bold" style="margin-top:4px">Cần ' + i.slCan + ' · Đã đóng ' + i.slDong + ' · Còn ' + Math.max(0, i.slCan - i.slDong) + '</div></button>';
+    }).join('') +
+    '</div></div>' +
+    '<div class="scanhint"><button type="button" class="btn sm" onclick="closeScanner();openScanner()">' + ICON.scan + 'Quét lại</button></div>';
+}
+function pickTwin(code, sku) {
+  var it = S.detail.items.filter(function (i) { return String(i.sku) === String(sku); })[0];
+  closeScanner();
+  if (it) choseScanned(code, it);
 }
 
 /* Bảng chọn "Mã này là hàng nào?" (dùng khi quét mã mới, hoặc ghép lại khi lỡ ghép nhầm) */

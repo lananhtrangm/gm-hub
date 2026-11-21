@@ -132,6 +132,9 @@ nav.sbar button.po{padding-bottom:12px}
 nav.sbar .nbar{position:absolute;left:10px;right:10px;bottom:5px;height:3px;border-radius:9px;background:rgba(255,255,255,.15)}
 nav.sbar .nbar i{display:block;height:100%;border-radius:9px;background:var(--pri)}
 nav.sbar button.on .nbar i{background:var(--ink)}
+nav.sbar .nf[data-k^="po"]>.nfh{font-weight:700;color:var(--ink-text);padding-bottom:13px}
+nav.sbar .nf[data-k^="po"] .nfb{margin-left:10px}
+.lottabs .tab{flex:1}
 nav.sbar .nempty{font-size:12px;color:var(--ink-muted);padding:4px 10px 8px}
 nav.sbar .navfoot{border-top:1px solid rgba(255,255,255,.12);padding:10px 10px calc(10px + env(safe-area-inset-bottom))}
 nav.sbar .who{padding:4px 10px 8px;display:flex;flex-direction:column}
@@ -449,6 +452,7 @@ var ICON = {
   menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
   chev: '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   folder: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
+  doc: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg>',
   grid: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
   gear: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>',
   box: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5"/><path d="M12 12v9"/></svg>',
@@ -505,6 +509,7 @@ function navKho(k, tab) {
   var f = navFolds(); f['kho' + k] = true; store('godfbs_fold', JSON.stringify(f));
   go('lots');
 }
+function navLot(id, tab) { S.lotTab = tab; S.lotTabFor = id; navGo('lot', id); }
 function navGo(view, arg) { navOpen(false); if (view === 'home') return goHome(); go(view, arg); }
 function navItem(on, click, icon, label, badge, cls) {
   return '<button type="button" class="ni' + (on ? ' on' : '') + (cls ? ' ' + cls : '') + '" onclick="' + click + '">' +
@@ -526,10 +531,11 @@ function navBar(active) {
     var open = mine.filter(function (l) { return l.status !== 'done'; });
     var done = mine.length - open.length;
     var body = open.map(function (l) {
-      var on = inLot && S.lotId === l.lotId;
-      return '<button type="button" class="ni po' + (on ? ' on' : '') + '" title="' + esc(l.po) + '" onclick="navGo(\'lot\',\'' + esc(l.lotId) + '\')">' +
-        '<span class="nl">PO …' + esc(String(l.po).slice(-5)) + (l.han ? '<small>Hạn ' + esc(l.han) + '</small>' : '') + '</span>' +
-        '<span class="nb">' + pct(l.slDong, l.slCan) + '%</span><i class="nbar"><i style="width:' + pct(l.slDong, l.slCan) + '%"></i></i></button>';
+      var cur = inLot && S.lotId === l.lotId, p = pct(l.slDong, l.slCan), id = esc(l.lotId);
+      var kids = navItem(cur && S.lotTab !== 'info', "navLot('" + id + "','dong')", ICON.box, 'Đóng bao', l.bagCount, 'sub') +
+        navItem(cur && S.lotTab === 'info', "navLot('" + id + "','info')", ICON.doc, 'Thông tin lô', '', 'sub');
+      return navFolder('po' + l.lotId, '', 'PO …' + esc(String(l.po).slice(-5)) + (l.han ? '<small>Hạn ' + esc(l.han) + '</small>' : ''), kids,
+        '<span class="nb">' + p + '%</span><i class="nbar"><i style="width:' + p + '%"></i></i>', cur);
     }).join('') || '<div class="nempty">Không có PO đang đóng</div>';
     body = navItem(v === 'lots' && S.kho === k && S.tab === 'open', "navKho('" + k + "','open')", '', 'Đang đóng', open.length, 'sub') + body +
       navItem(v === 'lots' && S.kho === k && S.tab === 'done', "navKho('" + k + "','done')", '', 'Đã xong', done, 'sub');
@@ -865,6 +871,8 @@ function skuChip(i, lotDone) {
 function viewLot(keep) {
   if (S.detail && S.detail.lot && KHO_TEN[S.detail.lot.kho]) { S.kho = S.detail.lot.kho; store('godfbs_kho', S.kho); }
   var d = S.detail, l = d.lot, done = l.status === 'done';
+  if (S.lotTabFor !== l.lotId) { S.lotTab = 'dong'; S.lotTabFor = l.lotId; }
+  var tab = S.lotTab === 'info' ? 'info' : 'dong';
   var slCan = 0, slDong = 0;
   d.items.forEach(function (i) { slCan += i.slCan; slDong += i.slDong; });
 
@@ -950,22 +958,28 @@ function viewLot(keep) {
     '<div class="grow"><div class="eyebrow">' + (KHO_TEN[l.kho] || 'Lô hàng') + (l.han ? ' · Hạn giao ' + esc(l.han) : '') + (done ? ' · Đã hoàn tất' : '') + '</div>' +
     '<div class="title" style="word-break:break-all">' + esc(poName(l)) + '</div></div>' +
     '<button type="button" class="iconbtn" aria-label="Tải lại" onclick="loadLot()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button></div>' +
-    '<div class="split"><div class="main stack">' + twinWarn +
+    '<div class="tabs lottabs"><button type="button" class="tab ' + (tab === 'dong' ? 'on' : '') + '" onclick="setLotTab(\'dong\')">📦 Đóng bao (' + d.bags.length + ')</button>' +
+    '<button type="button" class="tab ' + (tab === 'info' ? 'on' : '') + '" onclick="setLotTab(\'info\')">📄 Thông tin lô</button></div>' +
+    (tab === 'info' ? '<div class="stack">' +
     '<div class="card stack">' + info +
     '<div class="stack" style="gap:6px"><div class="bar"><div style="width:' + pct(slDong, slCan) + '%"></div></div>' +
     '<div class="row between small muted"><span>Đã đóng ' + slDong + ' / ' + slCan + ' pcs · ' + d.bags.length + ' bao</span></div></div>' + drafts + '</div>' +
-    pxk +
+    pxk + '</div>' :
+    '<div class="split"><div class="main stack">' + twinWarn +
+    '<div class="card stack"><div class="stack" style="gap:6px"><div class="bar"><div style="width:' + pct(slDong, slCan) + '%"></div></div>' +
+    '<div class="row between small muted"><span>Đã đóng ' + slDong + ' / ' + slCan + ' pcs · ' + d.bags.length + ' bao</span></div></div>' + drafts + '</div>' +
     '<div class="card stack"><div class="row between"><h3 style="margin:0">Các bao đã chốt (' + d.bags.length + ')</h3>' +
     (isAdmin() && !done ? '<button type="button" class="btn sm" onclick="showManualBag()">+ Thêm bao thủ công</button>' : '') + '</div><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
     '<th>Bằng chứng</th></tr></thead><tbody>' + (bags || '<tr><td colspan="7" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div></div>' +
     '</div><div class="side stack"><div class="bold">Danh sách SKU (' + d.items.length + ')</div>' +
     '<input class="in" type="search" id="skuq" placeholder="Tìm SKU, barcode, phân loại…" value="' + esc(skuQ ? S.skuQ.v : '') + '" oninput="filterSkuList(this.value,\'' + esc(d.lot.lotId) + '\')">' +
     '<div class="muted small" id="skuqn"' + (skuQ ? '' : ' style="display:none"') + '>' + (skuQ ? (skuN ? 'Thấy ' + skuN + ' SKU' : 'Không thấy SKU nào khớp') : '') + '</div>' + items + '</div></div>' +
-    '</div>' +
-    (!done ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" onclick="newBag()">+ Đóng bao mới</button></div></div>' : '') +
+    '') + '</div>' +
+    (!done && tab === 'dong' ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" onclick="newBag()">+ Đóng bao mới</button></div></div>' : '') +
     nav('lots'), keep);
 }
 
+function setLotTab(t) { S.lotTab = t; S.lotTabFor = S.lotId; viewLot(); }
 function saveLotInfo() {
   call('updateLot', { lotId: S.lotId, po: $('lpo').value, asn: $('lasn').value, kho: $('lkho').value }).then(function (d) { toast('Đã lưu.'); showLot(d); });
 }

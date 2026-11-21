@@ -93,6 +93,8 @@ label.f{display:flex;flex-direction:column;gap:6px;font-size:14px;font-weight:70
 .thumbs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
 .thumbs img,.thumbs .add{width:100%;aspect-ratio:1/1;object-fit:cover;border-radius:10px;background:var(--track)}
 .thumbs .add{border:1.5px dashed #C9CEC2;background:var(--field);display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--muted)}
+.thumbs .delph{position:absolute;top:4px;right:4px;width:26px;height:26px;border-radius:50%;border:0;background:rgba(0,0,0,.65);color:#fff;font-weight:800;cursor:pointer;line-height:26px;padding:0}
+.thumbs .nothumb{width:100%;aspect-ratio:1/1;border-radius:10px;background:var(--track);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted)}
 .check{display:flex;align-items:center;gap:12px;min-height:44px;font-size:16px;font-weight:600}
 .check input{width:24px;height:24px;accent-color:var(--pri)}
 .stepper{display:flex;gap:8px}
@@ -793,7 +795,7 @@ function viewLot(keep) {
       '<td>' + esc(b.user) + '</td><td>' + esc(b.createdAt) + '</td>' +
       (isAdmin() ? '<td>' + (b.cleaned ? '<span class="muted">Đã xóa sau 30 ngày</span>' :
         (b.videoPending ? '<span class="chip warn">⏳ Video đang tải</span>' : '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a>') + ' · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>') +
-        (!done ? ' · <a href="#" onclick="showChangeBag(\'' + esc(b.bagId) + '\');return false">Đổi hàng</a>' +
+        (!done ? ' · <a href="#" onclick="openEditBag(\'' + esc(b.bagId) + '\');return false">Sửa bao</a>' +
           ' · <a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : '') + '</td>'
         : '<td>' + evidenceChip(b) + '</td>') + '</tr>';
   }).join('');
@@ -851,7 +853,8 @@ function viewLot(keep) {
     '<div class="stack" style="gap:6px"><div class="bar"><div style="width:' + pct(slDong, slCan) + '%"></div></div>' +
     '<div class="row between small muted"><span>Đã đóng ' + slDong + ' / ' + slCan + ' pcs · ' + d.bags.length + ' bao</span></div></div>' + drafts + '</div>' +
     pxk +
-    '<div class="card stack"><h3 style="margin:0">Các bao đã chốt (' + d.bags.length + ')</h3><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
+    '<div class="card stack"><div class="row between"><h3 style="margin:0">Các bao đã chốt (' + d.bags.length + ')</h3>' +
+    (isAdmin() && !done ? '<button type="button" class="btn sm" onclick="showManualBag()">+ Thêm bao thủ công</button>' : '') + '</div><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
     '<th>Bằng chứng</th></tr></thead><tbody>' + (bags || '<tr><td colspan="7" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div></div>' +
     '</div><div class="side stack"><div class="bold">Danh sách SKU (' + d.items.length + ')</div>' +
     '<input class="in" type="search" id="skuq" placeholder="Tìm SKU, barcode, phân loại…" value="' + esc(skuQ ? S.skuQ.v : '') + '" oninput="filterSkuList(this.value,\'' + esc(d.lot.lotId) + '\')">' +
@@ -953,6 +956,90 @@ function doChangeBag(bagId, sku) {
   });
 }
 
+/* ===================== SỬA BAO / THÊM BAO THỦ CÔNG (quản trị viên) ===================== */
+/* Số đã đóng của SKU, không tính chính bao đang sửa */
+function bagDong(it) {
+  var b = S.bag;
+  return it.slDong - (b && b.mode === 'edit' && it.sku === b.origSku ? Number(b.origQty) || 0 : 0);
+}
+function showManualBag() {
+  var d = S.detail, used = {}, max = 0;
+  d.bags.forEach(function (b) { used[b.baoNo] = 1; max = Math.max(max, b.baoNo); });
+  (d.drafts || []).forEach(function (b) { used[b.baoNo] = 1; max = Math.max(max, b.baoNo); });
+  var gaps = [];
+  for (var n = 1; n <= max; n++) if (!used[n]) gaps.push(n);
+  var box = document.createElement('div');
+  box.className = 'scanbox'; box.id = 'scanbox';
+  box.innerHTML = '<div class="scanhead"><div class="bold">Thêm bao thủ công</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
+    '<div class="chooser"><div class="stack" style="gap:10px">' +
+    '<div class="card stack" style="gap:6px"><div class="small">Dùng cho bao đã đóng ngoài app. Chọn số bao, rồi chọn hàng, số lượng; video và ảnh <b>không bắt buộc</b>.</div>' +
+    '<label class="f">Số bao<input class="in" type="number" inputmode="numeric" min="1" id="mbno" value="' + (gaps[0] || max + 1) + '"></label>' +
+    '<button type="button" class="btn pri block" onclick="startManualBag($(\'mbno\').value)">Tiếp tục</button></div>' +
+    (gaps.length ? '<div class="grouphd">Số bao đang trống (' + gaps.length + ')</div><div class="row wrapflex" style="gap:6px">' +
+      gaps.map(function (n) { return '<button type="button" class="btn sm" onclick="startManualBag(' + n + ')">Bao ' + n + '</button>'; }).join('') + '</div>'
+      : '<div class="muted small">Không có số bao nào bị trống từ 1 đến ' + max + '.</div>') +
+    '</div></div>';
+  var old = $('scanbox'); if (old) old.remove();
+  document.body.appendChild(box);
+}
+function startManualBag(no) {
+  no = Number(no);
+  if (!(no >= 1)) return toast('Nhập số bao.', true);
+  var lotId = S.lotId;
+  call('startManualBag', { lotId: lotId, baoNo: no }, { text: 'Đang tạo bao số ' + no + '…' }).then(function (r) {
+    closeScanner();
+    var bag = { mode: 'manual', bagId: r.bagId, baoNo: r.baoNo, sku: null, qty: '', q: '', job: null, videoId: null,
+      photos: [], danTem: false, xuatTrucTiep: false, xuatSSC: false, maDonSSC: '', slGoiThem: '', tinhTrang: '' };
+    bag.ready = Promise.resolve(bag);
+    vqAttach(bag);
+    S.bag = bag; S.view = 'bag'; viewBag(); window.scrollTo(0, 0);
+  });
+}
+function openEditBag(bagId) {
+  call('getBagEdit', { bagId: bagId }, { text: 'Đang mở bao…' }).then(function (r) {
+    var bag = { mode: 'edit', bagId: r.bagId, baoNo: r.baoNo, sku: r.sku, qty: r.qty, q: '', job: null,
+      origSku: r.sku, origQty: r.qty, origVid: r.videoId, videoId: r.videoId || null, cleaned: r.cleaned,
+      photos: r.photos.map(function (p) { return { id: p.id, thumb: p.thumb }; }),
+      danTem: r.danTem, xuatTrucTiep: r.xuatTrucTiep, xuatSSC: r.xuatSSC, maDonSSC: r.maDonSSC, slGoiThem: r.slGoiThem, tinhTrang: r.tinhTrang };
+    bag.ready = Promise.resolve(bag);
+    S.bag = bag; S.view = 'bag'; viewBag(); window.scrollTo(0, 0);
+  });
+}
+function removePhoto(n) {
+  var b = S.bag; if (!b || !b.photos[n]) return;
+  ask('Xóa ảnh ' + (n + 1) + ' khỏi bao? Ảnh sẽ vào thùng rác Drive khi bấm lưu.', { ok: 'Xóa ảnh', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    b.photos.splice(n, 1); viewBag();
+  });
+}
+function delBagVideo() {
+  var b = S.bag; if (!b) return;
+  ask('Xóa video của bao số ' + b.baoNo + '? Video sẽ vào thùng rác Drive khi bấm lưu. Sau đó chị có thể quay hoặc chọn video khác.', { ok: 'Xóa video', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    b.videoId = null; viewBag();
+  });
+}
+function doEditBag(b) {
+  var vid = b.videoId || '';
+  var pending = !vid && !!(b.job && b.job.keep);
+  call('editBag', {
+    bagId: b.bagId, sku: b.sku, qty: Number(b.qty), videoId: vid, videoPending: pending,
+    photoIds: b.photos.map(function (p) { return p.id; }),
+    danTem: b.danTem, xuatTrucTiep: b.xuatTrucTiep, xuatSSC: b.xuatSSC,
+    maDonSSC: b.maDonSSC, slGoiThem: b.slGoiThem, tinhTrang: b.tinhTrang
+  }, { text: 'Đang lưu bao…' }).then(function (r) {
+    S.bag = null;
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead && !j.saved; }).forEach(function (j) {
+      if (vid && j.fileId === vid) return vqDrop(j);
+      if (!j.keep) return vqDrop(j);
+      j.saved = true; vqSave(j); vqKick();   // video mới tải xong sẽ tự gắn vào bao
+    });
+    toast('Đã lưu bao số ' + r.baoNo + '.' + (pending ? ' Video mới đang tự tải tiếp, đừng tắt app nhé.' : '') + ' Nhớ xuất lại phiếu xuất kho.');
+    showLot(r.detail);
+    syncLot(r.detail.lot.lotId, r.oldSku !== b.sku ? [r.oldSku] : []);
+  });
+}
+
 /* ===================== ĐÓNG BAO ===================== */
 /* Mở ngay màn hình đóng bao; số bao lấy ngầm từ máy chủ (1–2 giây) */
 function newBag() {
@@ -1000,15 +1087,19 @@ function viewBag() {
 
   var vid = vidBox(b);
 
-  var thumbs = b.photos.map(function (p) {
-    return '<div style="position:relative"><img src="' + p.thumb + '" alt="Ảnh bao">' + (p.id ? '' : '<div class="small muted center">đang tải…</div>') + '</div>';
+  var thumbs = b.photos.map(function (p, n) {
+    return '<div style="position:relative">' + (p.thumb ? '<img src="' + p.thumb + '" alt="Ảnh bao">' : '<div class="nothumb">Ảnh ' + (n + 1) + '</div>') +
+      (p.id ? '' : '<div class="small muted center">đang tải…</div>') +
+      (b.mode && p.id ? '<button type="button" class="delph" aria-label="Xóa ảnh" onclick="removePhoto(' + n + ')">✕</button>' : '') + '</div>';
   }).join('');
 
-  var left = it ? Math.max(0, it.slCan - it.slDong) : 0;
+  var dong = it ? bagDong(it) : 0;
+  var left = it ? Math.max(0, it.slCan - dong) : 0;
+  var head = b.mode === 'edit' ? 'Sửa bao số ' : (b.mode === 'manual' ? 'Thêm bao số ' : 'Bao số ');
   var moreOpen = b.danTem || b.xuatTrucTiep || b.xuatSSC || b.maDonSSC || b.slGoiThem || b.tinhTrang;
   render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
     '<div class="row"><button type="button" class="iconbtn" aria-label="Hủy bao" onclick="cancelBag()">' + ICON.back + '</button>' +
-    '<div class="grow"><div class="eyebrow" style="word-break:break-all">' + esc(poName(S.detail.lot)) + '</div><div class="title">Bao số ' + no + '</div></div>' +
+    '<div class="grow"><div class="eyebrow" style="word-break:break-all">' + esc(poName(S.detail.lot)) + '</div><div class="title">' + head + no + '</div></div>' +
     '<span class="chip soft">Mã kiện ' + no + '</span></div>' +
 
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Chọn hàng &amp; số lượng</h3>' +
@@ -1017,7 +1108,7 @@ function viewBag() {
         : '<div class="small" style="color:var(--text2)">' + esc(it.ten) + ' · ' + esc(it.phanLoai) + '</div>') +
       '<div class="muted small">SKU ' + esc(it.sku) + '</div></div>' +
       '<button type="button" class="btn sm" onclick="S.bag.sku=null;S.bag.scanCode=null;viewBag()">Đổi</button></div>' +
-      '<div class="need"><div>Cần<b>' + it.slCan + '</b></div><div>Đã đóng<b>' + it.slDong + '</b></div><div class="left">Còn<b>' + left + '</b></div></div></div>' +
+      '<div class="need"><div>Cần<b>' + it.slCan + '</b></div><div>' + (b.mode === 'edit' ? 'Bao khác đã đóng' : 'Đã đóng') + '<b>' + dong + '</b></div><div class="left">Còn<b>' + left + '</b></div></div></div>' +
       (b.scanCode && S.codes[b.scanCode] ? '<div class="small muted">Chọn bằng mã quét ' + esc(b.scanCode) +
         (isAdmin() ? ' · <a href="#" onclick="showCodeChooser(\'' + esc(b.scanCode) + '\');return false">Sai hàng? Ghép lại</a>'
           : ' · Sai hàng? Báo quản trị viên') + '</div>' : '') +
@@ -1029,7 +1120,7 @@ function viewBag() {
         (CAN_SCAN ? '<button type="button" class="btn scanbtn" onclick="openScanner()" aria-label="Quét mã bằng camera">' + ICON.scan + 'Quét mã</button>' : '') + '</div>' +
         '<div class="stack" id="picks" style="gap:8px">' + picks + '</div>') + '</div>' +
 
-    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video đóng hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3>' + vid + '</div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video đóng hàng ' + (b.mode ? '<span class="chip soft" style="margin-left:6px">Không bắt buộc</span>' : '<span class="chip bad" style="margin-left:6px">Bắt buộc</span>') + '</h3>' + vid + '</div>' +
 
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Ảnh bao hàng</h3>' +
     '<div class="thumbs">' + thumbs + '<button type="button" class="add" aria-label="Chụp ảnh" onclick="$(\'pfile\').click()">' + ICON.cam + '</button></div></div>' +
@@ -1046,7 +1137,7 @@ function viewBag() {
     '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
     '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
     '<input type="file" id="pfile" accept="image/*" capture="environment" hidden onchange="gotPhotos(this)">' +
-    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" onclick="saveBag()">✓ Chốt bao số ' + no + '</button></div></div>' +
+    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" onclick="saveBag()">' + (b.mode === 'edit' ? '✓ Lưu thay đổi bao số ' : (b.mode === 'manual' ? '✓ Lưu bao số ' : '✓ Chốt bao số ')) + no + '</button></div></div>' +
     nav('lots'));
 }
 
@@ -1067,6 +1158,14 @@ function stepQty(n) {
 }
 
 function cancelBag() {
+  if (S.bag && S.bag.mode === 'edit') {
+    return ask('Bỏ các thay đổi của bao số ' + S.bag.baoNo + '? Bao giữ nguyên như cũ.', { ok: 'Bỏ thay đổi' }).then(function (ok) {
+      if (!ok || !S.bag) return;
+      var bag = S.bag; S.bag = null;
+      VQ.jobs.filter(function (j) { return j.bagId === bag.bagId && !j.saved; }).forEach(vqDrop);
+      showLot(S.lotCache[S.lotId] || S.detail);
+    });
+  }
   ask('Hủy bao số ' + (S.bag.baoNo || '') + '? Thông tin đã nhập' + (S.bag.job || S.bag.videoId ? ' và video' : '') + ' sẽ mất.', { ok: 'Hủy bao', danger: true }).then(function (ok) {
     if (!ok || !S.bag) return;
     var bag = S.bag, lotId = S.lotId; S.bag = null;
@@ -1088,20 +1187,21 @@ function saveBag() {
   if (!b.sku) return toast('Chưa chọn SKU.', true);
   if (!(Number(b.qty) > 0)) return toast('Chưa nhập số lượng.', true);
   if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
-  if (!b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video.', true);
+  if (!b.mode && !b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video.', true);
   if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
   var it = bagItem();
-  var over = it && it.slDong + Number(b.qty) > it.slCan;
+  var over = it && bagDong(it) + Number(b.qty) > it.slCan;
   var msg = !over ? '' : 'Tổng số lượng sẽ vượt số lượng cần (' + it.slCan + ').' +
     (it.twin ? ' Barcode ' + it.barcode + ' dùng chung cho nhiều loại — kiểm tra lại đã chọn đúng phân loại "' + it.phanLoai + '" chưa.' : '') + ' Vẫn chốt?';
   (over ? ask(msg) : Promise.resolve(true)).then(function (ok) {
-    if (ok) doSaveBag(b);
+    if (!ok) return;
+    if (b.mode === 'edit') doEditBag(b); else doSaveBag(b);
   });
 }
 function doSaveBag(b) {
   var vid = b.videoId || '';   // video lúc bấm chốt (video có thể tải xong ngay trong lúc chờ máy chủ)
   call('saveBag', {
-    bagId: b.bagId, sku: b.sku, qty: Number(b.qty), videoId: vid, videoPending: !vid,
+    bagId: b.bagId, sku: b.sku, qty: Number(b.qty), videoId: vid, videoPending: !vid && !!(b.job && b.job.keep), manual: b.mode === 'manual',
     photoIds: b.photos.map(function (p) { return p.id; }),
     danTem: b.danTem, xuatTrucTiep: b.xuatTrucTiep, xuatSSC: b.xuatSSC,
     maDonSSC: b.maDonSSC, slGoiThem: b.slGoiThem, tinhTrang: b.tinhTrang
@@ -1112,7 +1212,7 @@ function doSaveBag(b) {
       if (!j.keep) return vqDrop(j);
       j.saved = true; vqSave(j); vqKick();                          // video tải xong sẽ tự gắn vào bao
     });
-    toast('Đã chốt bao số ' + r.baoNo + '.' + (vid ? '' : ' Video đang tự tải tiếp, đừng tắt app nhé.'));
+    toast('Đã ' + (b.mode === 'manual' ? 'lưu' : 'chốt') + ' bao số ' + r.baoNo + '.' + (vid || !(b.job && b.job.keep) ? '' : ' Video đang tự tải tiếp, đừng tắt app nhé.'));
     showLot(r.detail);
     syncLot(r.lotId);
   });
@@ -1774,6 +1874,12 @@ function vqShow(job) {
 /* Ô video của bao (bước 02) */
 function vidBox(b) {
   var j = b.job;
+  if (b.mode === 'edit' && b.videoId && b.videoId === b.origVid) {
+    if (b.videoId === 'pending') return '<div class="vidok">⏳ Video của bao đang được tải lên từ máy người đóng<span class="grow"></span><button type="button" class="btn sm" onclick="delBagVideo()">Bỏ, quay video khác</button></div>';
+    return '<div class="vidok">✓ Video hiện có' + (b.cleaned ? ' (đã xóa sau 30 ngày)' : '') + '<span class="grow"></span>' +
+      (b.cleaned ? '' : '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(b.videoId) + '/view" target="_blank" rel="noopener">Xem</a>') +
+      '<button type="button" class="btn sm" style="color:var(--bad)" onclick="delBagVideo()">Xóa video</button></div>';
+  }
   if (b.videoId) return '<div class="vidok">✓ Video đã lưu lên Drive<span class="grow"></span><button type="button" class="btn sm" onclick="redoVideo()">' + (CAN_RECORD ? 'Quay lại' : 'Chọn lại') + '</button></div>';
   if (j && j.status === 'hold') return '<div class="stack"><div class="bold" style="color:var(--bad)">Quay bị gián đoạn</div>' +
     '<div class="small">Đã quay được <b>' + mmss(j.dur || 0) + '</b> (' + mb(j.size) + ' MB) thì bị ngắt (cuộc gọi, chuyển app hoặc tắt máy). Phần đã quay vẫn còn.</div>' +

@@ -774,8 +774,11 @@ function viewLot(keep) {
     : '<div class="grid2"><div><div class="muted small">ASN</div><div class="bold">' + esc(l.asn || 'chưa nhập') + '</div></div>' +
       '<div><div class="muted small">Kho nhận</div><div class="bold">' + esc(l.kho) + '</div></div></div>';
 
+  var skuQ = foldQ(S.skuQ && S.skuQ.lot === d.lot.lotId ? S.skuQ.v : '').trim(), skuN = 0;
   var items = d.items.map(function (i) {
-    return '<div class="card sku"><div class="row between" style="align-items:flex-start"><div class="grow">' +
+    var dq = foldQ([i.barcode, i.sku, i.phanLoai, i.ten, i.maKien].join(' '));
+    var hit = !skuQ || dq.indexOf(skuQ) >= 0; if (hit) skuN++;
+    return '<div class="card sku" data-q="' + esc(dq) + '"' + (hit ? '' : ' style="display:none"') + '><div class="row between" style="align-items:flex-start"><div class="grow">' +
       '<div class="bold">' + esc(i.barcode || i.sku) + '</div>' +
       (i.twin ? '<div class="small bold">' + plHtml(i.phanLoai) + '</div><div class="muted small">SKU ' + esc(i.sku) + '</div>'
         : '<div class="muted small">' + esc(i.phanLoai) + ' · SKU ' + esc(i.sku) + '</div>') + twinTag(i) + '</div>' +
@@ -850,7 +853,9 @@ function viewLot(keep) {
     pxk +
     '<div class="card stack"><h3 style="margin:0">Các bao đã chốt (' + d.bags.length + ')</h3><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
     '<th>Bằng chứng</th></tr></thead><tbody>' + (bags || '<tr><td colspan="7" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div></div>' +
-    '</div><div class="side stack"><div class="bold">Danh sách SKU (' + d.items.length + ')</div>' + items + '</div></div>' +
+    '</div><div class="side stack"><div class="bold">Danh sách SKU (' + d.items.length + ')</div>' +
+    '<input class="in" type="search" id="skuq" placeholder="Tìm SKU, barcode, phân loại…" value="' + esc(skuQ ? S.skuQ.v : '') + '" oninput="filterSkuList(this.value,\'' + esc(d.lot.lotId) + '\')">' +
+    '<div class="muted small" id="skuqn"' + (skuQ ? '' : ' style="display:none"') + '>' + (skuQ ? (skuN ? 'Thấy ' + skuN + ' SKU' : 'Không thấy SKU nào khớp') : '') + '</div>' + items + '</div></div>' +
     '</div>' +
     (!done ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" onclick="newBag()">+ Đóng bao mới</button></div></div>' : '') +
     nav('lots'), keep);
@@ -1158,6 +1163,14 @@ function closeScanner() {
   var rm = function () { var b = $('scanbox'); if (b) b.remove(); };
   if (s && s.qr) { try { s.qr.stop().then(rm, rm); return; } catch (e) { /* chưa chạy */ } }
   rm();
+}
+function foldQ(v) { return String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd').replace(/Đ/g, 'd').toLowerCase(); }
+function filterSkuList(v, lotId) {
+  S.skuQ = { lot: lotId, v: v };
+  var q = foldQ(v).trim(), n = 0, cards = document.querySelectorAll('.side .card.sku');
+  cards.forEach(function (c) { var ok = !q || c.getAttribute('data-q').indexOf(q) >= 0; c.style.display = ok ? '' : 'none'; if (ok) n++; });
+  var m = document.getElementById('skuqn');
+  if (m) { m.style.display = q ? '' : 'none'; m.textContent = n ? 'Thấy ' + n + ' SKU' : 'Không thấy SKU nào khớp'; }
 }
 function normCode(v) { return String(v || '').trim().toUpperCase().replace(/\s+/g, ''); }
 

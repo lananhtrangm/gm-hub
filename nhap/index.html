@@ -965,7 +965,8 @@ function viewBag() {
   }).sort(function (x, y) { return (x.slDong >= x.slCan) - (y.slDong >= y.slCan); });
   var picks = list.map(function (i) {
     var full = i.slDong >= i.slCan;
-    return '<button type="button" class="pick ' + (b.sku === i.sku ? 'on' : '') + (full ? ' dim' : '') + '" onclick="pickSku(\'' + esc(i.sku) + '\')">' +
+    var act = i.twin ? 'pickTwinFromList' : 'pickSku';   // hàng chung barcode: mở bảng chọn đúng loại
+    return '<button type="button" class="pick ' + (b.sku === i.sku ? 'on' : '') + (full ? ' dim' : '') + '" onclick="' + act + '(\'' + esc(i.sku) + '\')">' +
       '<div class="bold" style="font-size:14px">' + esc(i.barcode || i.sku) + '</div>' +
       plLine(i) + twinTag(i) +
       '<div class="muted small">SKU ' + esc(i.sku) + '</div>' +
@@ -1225,7 +1226,7 @@ function showTwinChooser(code, list) {
   if (!box) { box = document.createElement('div'); box.className = 'scanbox'; box.id = 'scanbox'; document.body.appendChild(box); }
   box.innerHTML = '<div class="scanhead"><div class="bold">Chọn đúng loại hàng</div><button type="button" class="btn sm" onclick="closeScanner()">Đóng</button></div>' +
     '<div class="chooser"><div class="stack" style="gap:8px">' +
-    '<div class="card stack" style="gap:4px"><div class="muted small">Barcode vừa quét</div>' +
+    '<div class="card stack" style="gap:4px"><div class="muted small">' + (code ? 'Barcode vừa quét' : 'Barcode bạn chọn') + '</div>' +
     '<div class="bold" style="font-size:20px;word-break:break-all">' + esc(list[0].barcode || code) + '</div>' +
     '<div class="small"><b>⚠️ Barcode này dùng cho ' + list.length + ' loại khác nhau.</b> Xem kỹ phân loại trên hàng thật (có <b>Premium</b> hay không) rồi chọn đúng loại.</div></div>' +
     list.map(function (i) {
@@ -1236,12 +1237,25 @@ function showTwinChooser(code, list) {
         '<div class="small bold" style="margin-top:4px">Cần ' + i.slCan + ' · Đã đóng ' + i.slDong + ' · Còn ' + Math.max(0, i.slCan - i.slDong) + '</div></button>';
     }).join('') +
     '</div></div>' +
-    '<div class="scanhint"><button type="button" class="btn sm" onclick="closeScanner();openScanner()">' + ICON.scan + 'Quét lại</button></div>';
+    (code ? '<div class="scanhint"><button type="button" class="btn sm" onclick="closeScanner();openScanner()">' + ICON.scan + 'Quét lại</button></div>' : '');
 }
 function pickTwin(code, sku) {
   var it = S.detail.items.filter(function (i) { return String(i.sku) === String(sku); })[0];
   closeScanner();
-  if (it) choseScanned(code, it);
+  if (!it) return;
+  if (code) return choseScanned(code, it);
+  S.bag.q = ''; S.bag.scanCode = null;
+  pickSku(it.sku);
+  toast('Đã chọn ' + itemLabel(it));
+}
+/* Chọn tay (gõ tìm rồi bấm) một hàng dùng chung barcode: cũng hiện bảng chọn đúng loại để nhân viên xem lại phân loại */
+function pickTwinFromList(sku) {
+  var it = S.detail.items.filter(function (i) { return String(i.sku) === String(sku); })[0];
+  if (!it) return;
+  var bc = normCode(it.barcode);
+  var list = S.detail.items.filter(function (i) { return bc && normCode(i.barcode) === bc; });
+  if (list.length < 2) return pickSku(sku);
+  showTwinChooser('', list);
 }
 
 /* Bảng chọn "Mã này là hàng nào?" (dùng khi quét mã mới, hoặc ghép lại khi lỡ ghép nhầm) */

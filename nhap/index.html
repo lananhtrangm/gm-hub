@@ -1092,7 +1092,8 @@ function printTem() {
     box.innerHTML = '<div class="tbar"><button type="button" class="x" onclick="closeTem()">✕ Đóng</button><b>Tem kiện · ' + esc(TEMP.po) + '</b>' +
       '<div class="seg"><button type="button" id="temo1" onclick="temOrient(\'ngang\')">Ngang 150×100</button><button type="button" id="temo2" onclick="temOrient(\'doc\')">Dọc 100×150</button></div>' +
       '<label>Bao số <input type="text" id="tembao" placeholder="Trống = tất cả" oninput="temRender()"></label>' +
-      '<span id="temcnt"></span><button type="button" onclick="window.print()">🖨 In</button></div>' +
+      '<span id="temcnt"></span><button type="button" id="temin" onclick="window.print()">🖨 In</button>' +
+      '<button type="button" onclick="temPrintAll()">🖨 In tất cả (' + TEMP.total + ')</button></div>' +
       '<div class="tnote">Khi in: chọn máy in nhiệt, khổ giấy đúng 150×100mm (hoặc 100×150mm), Lề = Không, Tỉ lệ = 100% (Mặc định). Ô "Bao số" nhập dạng 1-5, 12 để in lại vài tem.</div>' +
       '<div class="pages" id="tempages"></div>';
     document.body.appendChild(box);
@@ -1104,6 +1105,10 @@ function closeTem() {
   var box = $('temprint'); if (box) box.remove();
   var pg = $('tempage'); if (pg) pg.textContent = '';   // trả lại khổ giấy bình thường cho các trang in khác
   document.body.classList.remove('temprinting');
+}
+function temPrintAll() {   // bỏ lọc "Bao số", in đủ tất cả tem của lô
+  $('tembao').value = ''; temRender();
+  setTimeout(function () { window.print(); }, 50);
 }
 function temOrient(o) { TEMP.orient = o; store('godfbs_tem_orient', o); temRender(); }
 function temQr(text) {
@@ -1152,6 +1157,8 @@ function temRender() {
   $('temo1').className = doc ? '' : 'on';
   $('temo2').className = doc ? 'on' : '';
   $('temcnt').textContent = list.length + ' tem';
+  $('temin').textContent = '🖨 In ' + list.length + ' tem đang chọn';
+  $('temin').style.display = set ? '' : 'none';   // không lọc thì chỉ cần nút "In tất cả"
   $('tempages').innerHTML = list.length ? list.map(temOne).join('') : '<div style="padding:30px">Không có bao nào khớp số đã nhập.</div>';
 }
 function exportNow() {

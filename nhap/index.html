@@ -2770,11 +2770,15 @@ function viewNBag() {
     '<div class="grow"><div class="eyebrow">Nhập kho · ' + esc(b.ma) + '</div><div class="title">Bao số <span class="baono">' + (b.baoNo || '…') + '</span></div></div></div>' +
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Video bóc hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
     '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Mã hàng &amp; số lượng trong bao</h3>' +
-    '<div class="row" style="gap:8px"><input class="in grow" id="nbcode" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã SKU (mỗi lần quét +1)" ' +
-    'oninput="nbSuggest(this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAdd(this.value);this.value=\'\';nbSuggest(\'\')}">' +
-    (CAN_SCAN ? '<button type="button" class="btn sm" onclick="openScanner(nbAdd)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+    '<div class="muted small">Quét mã trên từng món (mỗi lần quét +1), hoặc gõ mã + nhập tay số lượng rồi bấm Thêm.</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 170px" id="nbcode" autocomplete="off" autocapitalize="characters" placeholder="Mã SKU" ' +
+    'oninput="nbSuggest(this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAddTyped()}">' +
+    '<input class="in" style="width:96px;flex:none;text-align:center" id="nbqty" type="number" inputmode="numeric" min="1" placeholder="SL" aria-label="Số lượng" ' +
+    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAddTyped()}">' +
+    '<button type="button" class="btn sm pri" style="height:50px" onclick="nbAddTyped()">＋ Thêm</button>' +
+    (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(nbAdd)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
     '<div id="nbsug" class="stack" style="gap:6px"></div><div id="nblines" class="stack" style="gap:8px">' + nbLines(b) + '</div></div>' +
-    '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Ảnh bao hàng <span class="muted small" style="font-weight:600">không bắt buộc</span></h3><div class="thumbs" id="nbph">' + nbPhotos(b) + '</div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Ảnh bao hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div class="thumbs" id="nbph">' + nbPhotos(b) + '</div></div>' +
     '</div>' +
     '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
     '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
@@ -2818,25 +2822,35 @@ function nbSuggest(v) {
   if (q.length < 2) { el.innerHTML = ''; return; }
   var hits = S.hh.items.filter(function (i) { return i.sku.indexOf(q) >= 0; }).slice(0, 8);
   el.innerHTML = hits.map(function (i) {
-    return '<button type="button" class="pick" style="padding:8px 12px" onclick="nbAdd(\'' + esc(i.sku) + '\');$(\'nbcode\').value=\'\';nbSuggest(\'\')"><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai) + ' · tồn ' + fmtN(i.tonKho) + '</span></button>';
+    return '<button type="button" class="pick" style="padding:8px 12px" onclick="$(\'nbcode\').value=\'' + esc(i.sku) + '\';nbAddTyped()"><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai) + ' · tồn ' + fmtN(i.tonKho) + '</span></button>';
   }).join('') || '<div class="small muted">Không có mã nào khớp trong danh sách quản lý.</div>';
 }
-function nbAdd(code) {
-  var b = S.bag; if (!b || b.kind !== 'nk') return;
+/* Gõ mã + số lượng nhập tay (để trống số lượng = 1). Số nhập tay được CỘNG vào số đang có của mã đó. */
+function nbAddTyped() {
+  var c = $('nbcode'), q = $('nbqty'), n = Math.round(Number(q.value));
+  if (!normCode(c.value)) { toast('Gõ mã SKU trước nhé.', true); c.focus(); return; }
+  if (q.value !== '' && !(n > 0)) { toast('Số lượng phải lớn hơn 0.', true); q.focus(); return; }
+  if (nbAdd(c.value, q.value === '' ? 1 : n)) { c.value = ''; q.value = ''; nbSuggest(''); c.focus(); }
+}
+function nbAdd(code, qty) {
+  var b = S.bag; if (!b || b.kind !== 'nk') return false;
+  qty = Number(qty) > 0 ? Math.round(Number(qty)) : 1;
   code = normCode(code); if (!code) return;
   var it = hhFind(code), hint = $('scanhint');
   if (!it) {
     try { if (navigator.vibrate) navigator.vibrate([60, 60, 60]); } catch (e) { /* bỏ qua */ }
     var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
     if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
-    return;
+    return false;
   }
   if (b.lines.order.indexOf(it.sku) < 0) { b.lines.order.push(it.sku); b.lines.sl[it.sku] = 0; }
   else { b.lines.order = b.lines.order.filter(function (x) { return x !== it.sku; }); b.lines.order.push(it.sku); }
-  b.lines.sl[it.sku] = (Number(b.lines.sl[it.sku]) || 0) + 1;
+  b.lines.sl[it.sku] = (Number(b.lines.sl[it.sku]) || 0) + qty;
   try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
   if (hint) hint.innerHTML = 'Đã quét <b>' + esc(it.sku) + '</b> → ' + b.lines.sl[it.sku] + ' cái. Quét món tiếp theo…';
+  else if (qty > 1) toast('Đã thêm ' + qty + ' cái ' + it.sku + ' (tổng ' + b.lines.sl[it.sku] + ').');
   nbRedraw();
+  return true;
 }
 function nbBack() { S.bag = null; S.view = 'hh'; S.hhTab = 'nhap'; nkOpen(S.nkId); }
 function nbCancel() {
@@ -2858,6 +2872,7 @@ function nbSave() {
   if (!b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video bóc hàng.', true);
   var lines = b.lines.order.map(function (s) { return { sku: s, sl: Number(b.lines.sl[s]) || 0 }; }).filter(function (l) { return l.sl > 0; });
   if (!lines.length) return toast('Bao chưa có mã hàng nào.', true);
+  if (!b.photos.length) return toast('Bao chưa có ảnh. Chụp ít nhất 1 ảnh bao hàng nhé.', true);
   if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
   ask('Chốt bao số ' + b.baoNo + ', tồn kho cộng thêm:\n\n' + lines.map(function (l) { return l.sku + ' × ' + l.sl; }).join('\n'), { ok: 'Chốt bao' }).then(function (ok) {
     if (!ok || S.bag !== b) return;

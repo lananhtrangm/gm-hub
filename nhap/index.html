@@ -2454,10 +2454,10 @@ function hhLines() {
   if (!d.order.length) return '<div class="muted small">Chưa có món nào trong phiếu.</div>';
   return d.order.slice().reverse().map(function (s) {
     var i = by[s] || {}, v = d.sl[s], diff = kiem ? (Number(v) || 0) - (i.tonKho || 0) : 0;
-    return '<div class="card row between" style="padding:10px 12px;gap:10px" data-sku="' + esc(s) + '"><div class="grow" style="min-width:0">' +
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px" data-sku="' + esc(s) + '"><div style="flex:1 1 170px;min-width:0">' +
       '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div>' +
       '<div class="small">Tồn app: <b>' + fmtN(i.tonKho) + '</b>' + (kiem ? ' · Lệch: <b style="color:' + (diff ? 'var(--bad)' : 'var(--ok)') + '">' + (diff > 0 ? '+' : '') + fmtN(diff) + '</b>' : ' → sau nhập: <b>' + fmtN((i.tonKho || 0) + (Number(v) || 0)) + '</b>') + '</div></div>' +
-      '<div class="row" style="gap:6px;flex:none"><button type="button" class="btn sm" onclick="hhStep(this,-1)">−</button>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="hhStep(this,-1)">−</button>' +
       '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(v) + '" onchange="hhSet(this)">' +
       '<button type="button" class="btn sm" onclick="hhStep(this,1)">+</button>' +
       '<button type="button" class="btn sm" title="Bỏ khỏi phiếu" onclick="hhDel(this)">✕</button></div></div>';
@@ -2792,9 +2792,9 @@ function nbLines(b) {
   if (!b.lines.order.length) return '<div class="muted small">Chưa có mã nào. Quét mã trên từng món, hoặc gõ vài chữ của mã rồi chọn.</div>';
   return b.lines.order.slice().reverse().map(function (s) {
     var i = by[s] || {};
-    return '<div class="card row between" style="padding:10px 12px;gap:10px" data-sku="' + esc(s) + '"><div class="grow" style="min-width:0">' +
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px" data-sku="' + esc(s) + '"><div style="flex:1 1 170px;min-width:0">' +
       '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div></div>' +
-      '<div class="row" style="gap:6px;flex:none"><button type="button" class="btn sm" onclick="nbStep(this,-1)">−</button>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="nbStep(this,-1)">−</button>' +
       '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(b.lines.sl[s]) + '" onchange="nbSet(this)">' +
       '<button type="button" class="btn sm" onclick="nbStep(this,1)">+</button>' +
       '<button type="button" class="btn sm" title="Bỏ mã này" onclick="nbDel(this)">✕</button></div></div>';

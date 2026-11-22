@@ -496,6 +496,8 @@ function same(a, b) { return JSON.stringify(a) === JSON.stringify(b); }
 function lotsKey() { return 'godfbs_lots_' + (S.user ? S.user.username : ''); }
 
 function isAdmin() { return S.user && S.user.role === 'admin'; }
+/* Chức năng tài khoản này được dùng (chị chọn trong Cài đặt → Phân quyền). Máy còn lưu thông tin cũ (chưa có perms) thì theo quyền cũ. */
+function can(k) { return !!(S.user && (S.user.perms ? S.user.perms[k] : S.user.role === 'admin')); }
 function pct(a, b) { return b ? Math.min(100, Math.round(a * 100 / b)) : 0; }
 function render(html, keep) {
   var y = window.scrollY;
@@ -560,7 +562,7 @@ function navBar(active) {
       navItem(v === 'lots' && S.kho === k && S.tab === 'done', "navKho('" + k + "','done')", '', 'Đã xong', done, 'sub');
     fbs += navFolder('kho' + k, ICON.folder, KHO_TEN[k], body, open.length ? '<span class="nb hot">' + open.length + '</span>' : '', S.kho === k);
   });
-  if (isAdmin()) fbs += navItem(v === 'import', "navGo('import')", ICON.up, 'Tải file gốc mới');
+  if (can('import')) fbs += navItem(v === 'import', "navGo('import')", ICON.up, 'Tải file gốc mới');
   var html = '<nav class="sbar" aria-label="Menu">' +
     '<div class="brand">' + ICON.logoSm + '<div><div class="nm">GM Hub</div><div class="sb">Kho Godmother</div></div>' +
     '<button type="button" class="navhide" title="Ẩn thanh menu" aria-label="Ẩn thanh menu" onclick="navMin(true)">«</button>' +
@@ -568,7 +570,8 @@ function navBar(active) {
     '<div class="nscroll">' +
     '<div class="ngrp">Công việc</div>' +
     navFolder('fbs', ICON.box, 'Đóng hàng FBS', fbs) +
-    (isAdmin() ? '<div class="ngrp">Quản lý</div>' + navFolder('quanly', ICON.gear, 'Cài đặt', navItem(active === 'users', "navGo('users')", ICON.user, 'Tài khoản')) : '') +
+    (isAdmin() ? '<div class="ngrp">Quản lý</div>' + navFolder('quanly', ICON.gear, 'Cài đặt', navItem(active === 'users', "navGo('users')", ICON.user, 'Tài khoản') +
+      navItem(active === 'perms', "navGo('perms')", ICON.gear, 'Phân quyền chức năng')) : '') +
     '</div>' +
     '<div class="navfoot"><div class="who"><b>' + esc(S.user ? S.user.hoTen : '') + '</b><span>' + (isAdmin() ? 'Quản trị' : 'Nhân viên') + '</span></div>' +
     '<button type="button" class="ni out" onclick="logout()">' + ICON.out + '<span class="nl">Đăng xuất</span></button></div></nav>';
@@ -577,7 +580,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'users' ? 'Tài khoản' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -600,7 +603,7 @@ function boot() {
     // Đã đăng nhập trên máy này: vào thẳng danh sách lô, kiểm tra phiên ngầm
     S.user = savedUser; S.kho = load('godfbs_kho'); go('lots'); vqInit();
     call('me', {}, { quiet: true, silent: true }).then(function (d) {
-      var roleChanged = !S.user || S.user.role !== d.user.role;
+      var roleChanged = !S.user || S.user.role !== d.user.role || JSON.stringify(S.user.perms || null) !== JSON.stringify(d.user.perms || null);
       S.user = d.user; S.tinhTrang = d.tinhTrang || S.tinhTrang;
       store('godfbs_user', JSON.stringify(d.user));
       if (roleChanged && S.view === 'lots' && S.lots && S.lots.length && !editing()) viewLots(true);
@@ -650,6 +653,7 @@ function go(view, arg) {
   if (view === 'lot') { S.lotId = arg || S.lotId; return loadLot(); }
   if (view === 'import') return viewImport();
   if (view === 'users') return loadUsers();
+  if (view === 'perms') return loadPerms();
 }
 
 /* ===================== ĐĂNG NHẬP ===================== */
@@ -761,7 +765,7 @@ function viewFbsHome(keep) {
     '<div class="muted small hello1">Xin chào, ' + esc(S.user.hoTen) + ' · chọn kho để làm việc</div></div>' +
     '<span class="chip soft">' + (isAdmin() ? 'Quản trị' : 'Nhân viên') + '</span></div>' +
     '<div class="khogrid">' + cards + '</div>' +
-    (isAdmin() ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
+    (can('import') ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
       '<div class="bold">Tải file gốc của lần xuất mới</div><div class="muted small dropsub">PO sẽ tự vào đúng Kho HN hoặc Kho HCM</div></button>' : '') +
     '</div>' + nav('lots'), keep);
 }
@@ -799,7 +803,7 @@ function viewLots(keep) {
     '<div class="tabs"><button type="button" class="tab ' + (S.tab === 'open' ? 'on' : '') + '" onclick="setTab(\'open\')">Đang đóng (' + open.length + ')</button>' +
     '<button type="button" class="tab ' + (S.tab === 'done' ? 'on' : '') + '" onclick="setTab(\'done\')">Đã xong (' + done.length + ')</button></div>' +
     (cards || '<div class="card center muted">' + KHO_TEN[S.kho] + ' chưa có PO nào ' + (S.tab === 'open' ? 'đang đóng' : 'đã xong') + '.</div>') +
-    (isAdmin() ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
+    (can('import') ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
       '<div class="bold">Tải file gốc của lần xuất mới</div><div class="muted small">Dán link Google Sheet file gốc</div></button>' : '') +
     '</div>' + nav('lots'), keep);
 }
@@ -898,7 +902,7 @@ function viewLot(keep) {
   var slCan = 0, slDong = 0;
   d.items.forEach(function (i) { slCan += i.slCan; slDong += i.slDong; });
 
-  var info = isAdmin()
+  var info = can('lotInfo')
     ? '<div class="grid2"><label class="f">Mã PO<input class="in" id="lpo" value="' + esc(l.po) + '"></label>' +
       '<label class="f">ASN<input class="in" id="lasn" value="' + esc(l.asn) + '" placeholder="Nhập mã ASN"></label></div>' +
       '<label class="f">Kho nhận<select class="in" id="lkho">' + d.khoList.map(function (k) {
@@ -925,11 +929,12 @@ function viewLot(keep) {
       (b.phanLoai ? '<div class="small' + (b.twin ? ' bold' : ' muted') + '">' + (b.twin ? '⚠️ ' + plHtml(b.phanLoai) : esc(b.phanLoai)) + '</div>' : '') +
       '</td><td class="num">' + b.qty + '</td><td>' + esc(b.tinhTrang) + '</td>' +
       '<td>' + esc(b.user) + '</td><td>' + esc(b.createdAt) + '</td>' +
-      (isAdmin() ? '<td>' + (b.cleaned ? '<span class="muted">Đã xóa sau 30 ngày</span>' :
-        (b.videoPending ? '<span class="chip warn">⏳ Video đang tải</span>' : '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a>') + ' · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>') +
-        (!done ? ' · <a href="#" onclick="openEditBag(\'' + esc(b.bagId) + '\');return false">Sửa bao</a>' +
-          ' · <a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : '') + '</td>'
-        : '<td>' + evidenceChip(b) + '</td>') + '</tr>';
+      '<td>' + [can('evidence') ? (b.cleaned ? '<span class="muted">Đã xóa sau 30 ngày</span>' :
+          (b.videoPending ? '<span class="chip warn">⏳ Video đang tải</span>' : '<a href="' + esc(b.videoUrl) + '" target="_top">Xem video</a>') + ' · <a href="' + esc(b.folderUrl) + '" target="_top">Ảnh</a>')
+          : evidenceChip(b),
+        can('editBag') && !done ? '<a href="#" onclick="openEditBag(\'' + esc(b.bagId) + '\');return false">Sửa bao</a>' : '',
+        can('deleteBag') && !done ? '<a href="#" onclick="delBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ');return false" style="color:var(--bad)">Xóa</a>' : ''
+      ].filter(Boolean).join(' · ') + '</td></tr>';
   }).join('');
 
   // Cảnh báo đầu lô: các barcode trong file gốc dùng chung cho nhiều SKU (phân biệt bằng phân loại / SKU)
@@ -952,8 +957,26 @@ function viewLot(keep) {
 
   var drafts = d.drafts.length ? '<div class="muted small">Đang đóng dở: ' + d.drafts.map(function (x) { return 'bao ' + x.baoNo + ' (' + esc(x.user) + ')'; }).join(', ') + '</div>' : '';
 
+  // Thao tác của lô: đặt lên ĐẦU tab Thông tin lô cho đỡ phải cuộn (chị Bồng yêu cầu 22/11). Nút nào hiện tùy Phân quyền.
+  var acts = [
+    can('writeBack') ? '<button type="button" class="btn" onclick="doWriteBack()">Ghi vào file gốc</button>' : '',
+    can('exportPxk') ? '<button type="button" class="btn pri" onclick="doExport()">Xuất phiếu xuất kho</button>' : '',
+    can('printTem') ? '<button type="button" class="btn" onclick="printTem()">🖨 In tem kiện</button>' : '',
+    can('lotStatus') ? (done ? '<button type="button" class="btn" onclick="setLotStatus(\'open\')">Mở lại lô</button>'
+                             : '<button type="button" class="btn" onclick="setLotStatus(\'done\')">Hoàn tất lô</button>') : '',
+    can('deleteLot') ? '<button type="button" class="btn danger" onclick="deleteLot()">Xóa lô khỏi phần mềm</button>' : ''
+  ].join('');
+  var links = [
+    l.pxkUrl ? '<a href="' + esc(l.pxkUrl) + '" target="_top">Mở phiếu xuất kho vừa xuất</a>' : '',
+    l.srcUrl ? '<a href="' + esc(l.srcUrl) + '" target="_top">Mở file gốc</a>' : '',
+    l.folderUrl ? '<a href="' + esc(l.folderUrl) + '" target="_top">Thư mục video & ảnh</a>' : ''
+  ].join('');
+  var actCard = acts || links ? '<div class="card stack" style="gap:10px">' +
+    (acts ? '<div class="row wrapflex">' + acts + '</div>' : '') +
+    (links ? '<div class="row wrapflex small">' + links + '</div>' : '') + '</div>' : '';
+
   var pxk = '';
-  if (isAdmin()) {
+  if (can('pxkView')) {
     var rows = d.items.filter(function (i) { return i.slDong > 0; }).map(function (i, k) {
       return '<tr><td>' + (k + 1) + '</td><td>' + esc(i.sku) + '</td><td>' + esc(i.ten) + '</td><td>' + esc(i.phanLoai) + '</td><td>pcs</td>' +
         '<td class="num">' + i.slCan + '</td><td class="num">' + i.slDong + '</td><td class="num">' + i.soKien + '</td><td>' + esc(i.maKien) + '</td><td>' + esc(i.ghiChu) + '</td></tr>';
@@ -962,18 +985,7 @@ function viewLot(keep) {
       '<span class="muted small">SKU chưa đóng / thiếu hàng không đưa vào phiếu</span></div>' +
       '<div class="tablebox"><table class="t"><thead><tr><th>STT</th><th>Mã SKU</th><th>Tên sản phẩm</th><th>Phân loại</th><th>ĐVT</th>' +
       '<th class="num">SL xác nhận</th><th class="num">SL giao</th><th class="num">SL kiện</th><th>Mã kiện</th><th>Ghi chú</th></tr></thead>' +
-      '<tbody>' + (rows || '<tr><td colspan="10" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div>' +
-      '<div class="row wrapflex">' +
-      '<button type="button" class="btn" onclick="doWriteBack()">Ghi vào file gốc</button>' +
-      '<button type="button" class="btn pri" onclick="doExport()">Xuất phiếu xuất kho</button>' +
-      '<button type="button" class="btn" onclick="printTem()">🖨 In tem kiện</button>' +
-      (done ? '<button type="button" class="btn" onclick="setLotStatus(\'open\')">Mở lại lô</button>'
-            : '<button type="button" class="btn" onclick="setLotStatus(\'done\')">Hoàn tất lô</button>') +
-      '<button type="button" class="btn danger" onclick="deleteLot()">Xóa lô khỏi phần mềm</button></div>' +
-      '<div class="row wrapflex small">' +
-      (l.pxkUrl ? '<a href="' + esc(l.pxkUrl) + '" target="_top">Mở phiếu xuất kho vừa xuất</a>' : '') +
-      '<a href="' + esc(l.srcUrl) + '" target="_top">Mở file gốc</a>' +
-      '<a href="' + esc(l.folderUrl) + '" target="_top">Thư mục video & ảnh</a></div></div>';
+      '<tbody>' + (rows || '<tr><td colspan="10" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div></div>';
   }
 
   render('<div class="wrap stack" style="padding-bottom:160px">' +
@@ -983,7 +995,7 @@ function viewLot(keep) {
     '<button type="button" class="iconbtn" aria-label="Tải lại" onclick="loadLot()"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v5h-5"/></svg></button></div>' +
     '<div class="tabs lottabs"><button type="button" class="tab ' + (tab === 'dong' ? 'on' : '') + '" onclick="setLotTab(\'dong\')">📦 Đóng bao (' + d.bags.length + ')</button>' +
     '<button type="button" class="tab ' + (tab === 'info' ? 'on' : '') + '" onclick="setLotTab(\'info\')">📄 Thông tin lô</button></div>' +
-    (tab === 'info' ? '<div class="stack">' +
+    (tab === 'info' ? '<div class="stack">' + actCard +
     '<div class="card stack">' + info +
     '<div class="stack" style="gap:6px"><div class="bar"><div style="width:' + pct(slDong, slCan) + '%"></div></div>' +
     '<div class="row between small muted"><span>Đã đóng ' + slDong + ' / ' + slCan + ' pcs · ' + d.bags.length + ' bao</span></div></div>' + drafts + '</div>' +
@@ -992,7 +1004,7 @@ function viewLot(keep) {
     '<div class="card stack"><div class="stack" style="gap:6px"><div class="bar"><div style="width:' + pct(slDong, slCan) + '%"></div></div>' +
     '<div class="row between small muted"><span>Đã đóng ' + slDong + ' / ' + slCan + ' pcs · ' + d.bags.length + ' bao</span></div></div>' + drafts + '</div>' +
     '<div class="card stack"><div class="row between"><h3 style="margin:0">Các bao đã chốt (' + d.bags.length + ')</h3>' +
-    (isAdmin() && !done ? '<button type="button" class="btn sm" onclick="showManualBag()">+ Thêm bao thủ công</button>' : '') + '</div><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
+    (can('manualBag') && !done ? '<button type="button" class="btn sm" onclick="showManualBag()">+ Thêm bao thủ công</button>' : '') + '</div><div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Bao</th><th>Barcode</th><th class="num">SL</th><th>Tình trạng</th><th>Người đóng</th><th>Thời gian</th>' +
     '<th>Bằng chứng</th></tr></thead><tbody>' + (bags || '<tr><td colspan="7" class="muted">Chưa có bao nào.</td></tr>') + '</tbody></table></div></div>' +
     '</div><div class="side stack"><div class="bold">Danh sách SKU (' + d.items.length + ')</div>' +
     '<input class="in" type="search" id="skuq" placeholder="Tìm SKU, barcode, phân loại…" value="' + esc(skuQ ? S.skuQ.v : '') + '" oninput="filterSkuList(this.value,\'' + esc(d.lot.lotId) + '\')">' +
@@ -1386,7 +1398,7 @@ function viewBag() {
       '<button type="button" class="btn sm" onclick="S.bag.sku=null;S.bag.scanCode=null;viewBag()">Đổi</button></div>' +
       '<div class="need"><div>Cần<b>' + it.slCan + '</b></div><div>' + (b.mode === 'edit' ? 'Bao khác đã đóng' : 'Đã đóng') + '<b>' + dong + '</b></div><div class="left">Còn<b>' + left + '</b></div></div></div>' +
       (b.scanCode && S.codes[b.scanCode] ? '<div class="small muted">Chọn bằng mã quét ' + esc(b.scanCode) +
-        (isAdmin() ? ' · <a href="#" onclick="showCodeChooser(\'' + esc(b.scanCode) + '\');return false">Sai hàng? Ghép lại</a>'
+        (can('saveCode') ? ' · <a href="#" onclick="showCodeChooser(\'' + esc(b.scanCode) + '\');return false">Sai hàng? Ghép lại</a>'
           : ' · Sai hàng? Báo quản trị viên') + '</div>' : '') +
       '<div class="qtyrow"><span class="lb">Số lượng<br>trong bao</span><div class="stepper grow">' +
       '<button type="button" class="btn" aria-label="Giảm" onclick="stepQty(-1)">−</button>' +
@@ -1597,14 +1609,14 @@ function gotScan(text) {
     if (h && h.getAttribute('data-code') !== code) {
       h.setAttribute('data-code', code);
       h.innerHTML = 'Mã <b>' + esc(code) + '</b> là hàng <b>' + esc(m.barcode || m.sku) + '</b>, không có trong PO này.' +
-        (isAdmin() ? '<div style="margin-top:8px"><button type="button" class="btn sm" onclick="showCodeChooser(\'' + esc(code) + '\')">Ghép lại cho hàng khác</button></div>' : '');
+        (can('saveCode') ? '<div style="margin-top:8px"><button type="button" class="btn sm" onclick="showCodeChooser(\'' + esc(code) + '\')">Ghép lại cho hàng khác</button></div>' : '');
     }
     return;
   }
   // Mã mới chưa ghép: quản trị viên thì hỏi đây là hàng nào; nhân viên thì báo chưa có mã, chọn tay
   SCAN.done = true;
   try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
-  if (isAdmin()) showCodeChooser(code); else showUnknownCode(code);
+  if (can('saveCode')) showCodeChooser(code); else showUnknownCode(code);
 }
 
 /* Nhân viên quét gặp mã chưa có trong bảng mã: không cho ghép, chỉ báo và cho chọn hàng bằng tay */
@@ -2244,6 +2256,50 @@ function addUser(e) {
 }
 function toggleUser(u, active) {
   call('setUserActive', { username: u, active: active }).then(function () { loadUsers(); });
+}
+/* ===================== PHÂN QUYỀN CHỨC NĂNG ===================== */
+/* Bảng chọn chức năng nào hiện ở tài khoản Nhân viên / Quản trị. Máy chủ cũng chặn theo đúng bảng này. */
+function loadPerms() {
+  call('getPerms', {}, { text: 'Đang tải phân quyền…' }).then(function (r) { S.perms = r; viewPerms(); });
+}
+function viewPerms() {
+  var r = S.perms, grp = '';
+  var box = function (k, role) {
+    return '<td class="center" style="vertical-align:middle"><input type="checkbox" style="width:20px;height:20px;accent-color:var(--pri)" class="pchk" data-k="' + esc(k) + '" data-r="' + role + '"' + (r.table[k][role] ? ' checked' : '') + ' aria-label="' + role + ' ' + esc(k) + '"></td>';
+  };
+  var rows = r.list.map(function (p) {
+    var h = p.nhom !== grp ? '<tr><td colspan="3" class="bold" style="background:var(--soft)">' + esc(p.nhom) + '</td></tr>' : '';
+    grp = p.nhom;
+    return h + '<tr><td>' + esc(p.ten) + '</td>' + box(p.key, 'staff') + box(p.key, 'admin') + '</tr>';
+  }).join('');
+  var fixed = function (t, staff) {
+    return '<tr><td>' + t + '</td><td class="center muted">' + staff + '</td><td class="center muted">Luôn có</td></tr>';
+  };
+  render('<div class="wrap stack" style="max-width:720px"><div class="title">Phân quyền chức năng</div>' +
+    '<div class="muted small">Tích vào ô để tài khoản đó thấy và dùng được chức năng. Bỏ tích thì nút bị ẩn, máy chủ cũng chặn luôn. ' +
+    'Nhân viên đang dùng app sẽ thấy thay đổi khi mở lại app hoặc tải lại trang.</div>' +
+    '<div class="card stack"><div class="tablebox"><table class="t" style="min-width:0;table-layout:fixed"><thead><tr><th>Chức năng</th><th class="center" style="width:84px;text-align:center">Nhân viên</th><th class="center" style="width:84px;text-align:center">Quản trị</th></tr></thead><tbody>' +
+    '<tr><td colspan="3" class="bold" style="background:var(--soft)">Luôn cố định</td></tr>' +
+    fixed('Đóng bao mới (chọn hàng, quay video, chụp ảnh, chốt bao)', 'Luôn có') +
+    fixed('Tài khoản, Phân quyền chức năng', 'Không') +
+    rows + '</tbody></table></div>' +
+    '<div class="row wrapflex"><button type="button" class="btn pri" onclick="savePerms()">Lưu phân quyền</button>' +
+    '<button type="button" class="btn" onclick="loadPerms()">Bỏ thay đổi</button></div></div></div>' + nav('perms'));
+}
+function savePerms() {
+  var t = {};
+  document.querySelectorAll('.pchk').forEach(function (c) {
+    var k = c.getAttribute('data-k'); t[k] = t[k] || {}; t[k][c.getAttribute('data-r')] = c.checked;
+  });
+  ask('Lưu phân quyền mới? Nút nào bỏ tích sẽ bị ẩn và bị chặn với loại tài khoản đó.', { ok: 'Lưu' }).then(function (ok) {
+    if (!ok) return;
+    call('savePerms', { table: t }, { text: 'Đang lưu…' }).then(function (r) {
+      S.perms = r; toast('Đã lưu phân quyền.');
+      call('me', {}, { quiet: true, silent: true }).then(function (d) {   // cập nhật quyền của chính chị ngay
+        S.user = d.user; store('godfbs_user', JSON.stringify(d.user)); viewPerms();
+      });
+    });
+  });
 }
 function resetPw(u) {
   ask('Mật khẩu mới cho ' + u + ' (ít nhất 6 ký tự):', { input: true, ok: 'Đổi mật khẩu' }).then(function (p) {

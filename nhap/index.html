@@ -2265,7 +2265,7 @@ function loadPerms() {
 function viewPerms() {
   var r = S.perms, grp = '';
   var box = function (k, role) {
-    return '<td class="center"><input type="checkbox" class="pchk" data-k="' + esc(k) + '" data-r="' + role + '"' + (r.table[k][role] ? ' checked' : '') + ' aria-label="' + role + ' ' + esc(k) + '"></td>';
+    return '<td class="center" style="vertical-align:middle"><input type="checkbox" style="width:20px;height:20px;accent-color:var(--pri)" class="pchk" data-k="' + esc(k) + '" data-r="' + role + '"' + (r.table[k][role] ? ' checked' : '') + ' aria-label="' + role + ' ' + esc(k) + '"></td>';
   };
   var rows = r.list.map(function (p) {
     var h = p.nhom !== grp ? '<tr><td colspan="3" class="bold" style="background:var(--soft)">' + esc(p.nhom) + '</td></tr>' : '';
@@ -2278,7 +2278,7 @@ function viewPerms() {
   render('<div class="wrap stack" style="max-width:720px"><div class="title">Phân quyền chức năng</div>' +
     '<div class="muted small">Tích vào ô để tài khoản đó thấy và dùng được chức năng. Bỏ tích thì nút bị ẩn, máy chủ cũng chặn luôn. ' +
     'Nhân viên đang dùng app sẽ thấy thay đổi khi mở lại app hoặc tải lại trang.</div>' +
-    '<div class="card stack"><div class="tablebox"><table class="t"><thead><tr><th>Chức năng</th><th class="center" style="width:110px">Nhân viên</th><th class="center" style="width:110px">Quản trị</th></tr></thead><tbody>' +
+    '<div class="card stack"><div class="tablebox"><table class="t" style="min-width:0;table-layout:fixed"><thead><tr><th>Chức năng</th><th class="center" style="width:84px;text-align:center">Nhân viên</th><th class="center" style="width:84px;text-align:center">Quản trị</th></tr></thead><tbody>' +
     '<tr><td colspan="3" class="bold" style="background:var(--soft)">Luôn cố định</td></tr>' +
     fixed('Đóng bao mới (chọn hàng, quay video, chụp ảnh, chốt bao)', 'Luôn có') +
     fixed('Tài khoản, Phân quyền chức năng', 'Không') +

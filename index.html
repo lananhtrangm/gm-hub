@@ -966,6 +966,7 @@ function viewLot(keep) {
       '<div class="row wrapflex">' +
       '<button type="button" class="btn" onclick="doWriteBack()">Ghi vào file gốc</button>' +
       '<button type="button" class="btn pri" onclick="doExport()">Xuất phiếu xuất kho</button>' +
+      '<button type="button" class="btn" onclick="printTem()">🖨 In tem kiện</button>' +
       (done ? '<button type="button" class="btn" onclick="setLotStatus(\'open\')">Mở lại lô</button>'
             : '<button type="button" class="btn" onclick="setLotStatus(\'done\')">Hoàn tất lô</button>') +
       '<button type="button" class="btn danger" onclick="deleteLot()">Xóa lô khỏi phần mềm</button></div>' +
@@ -1022,6 +1023,143 @@ function doExport() {
   var asn = S.detail && S.detail.lot && String(S.detail.lot.asn || '').trim();
   (asn ? Promise.resolve(true) : ask('Lô chưa có ASN (nhập ASN rồi bấm "Lưu thông tin lô"). Phiếu sẽ không có mã QR. Vẫn xuất?'))
     .then(function (ok) { if (ok) exportNow(); });
+}
+/* ---------- In tem kiện khổ giấy nhiệt cố định (150×100mm hoặc 100×150mm) ---------- */
+/* Mỗi bao đã chốt = 1 tem = đúng 1 tờ. Mở lớp in ngay trong app (không bật cửa sổ mới, để điện thoại không chặn),
+   có thanh chọn chiều giấy + số bao, bấm "In" là in; khi in chỉ còn các tem, phần app bị ẩn. */
+var TEM_QR_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';
+var TEMP = null, temLibP = null;
+function loadTemLib() {
+  if (window.qrcode) return Promise.resolve();
+  if (temLibP) return temLibP;
+  temLibP = new Promise(function (resolve, reject) {
+    var s = document.createElement('script'); s.src = TEM_QR_LIB; s.onload = resolve;
+    s.onerror = function () { temLibP = null; reject(new Error('Không tải được bộ tạo mã QR, kiểm tra mạng rồi thử lại.')); };
+    document.head.appendChild(s);
+  });
+  return temLibP;
+}
+var TEM_CSS = [
+  '#temprint{position:fixed;inset:0;z-index:9000;overflow:auto;background:#e9e6df;color:#000;font-family:Arial,Helvetica,sans-serif;-webkit-overflow-scrolling:touch}',
+  '#temprint *{box-sizing:border-box}',
+  '#temprint .tbar{position:sticky;top:0;z-index:5;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:10px 12px;background:#5A3E2B;color:#fff;font-size:14px}',
+  '#temprint .tbar label{display:flex;gap:6px;align-items:center}',
+  '#temprint .tbar input{width:140px;padding:6px 8px;border-radius:6px;border:0;font-size:14px;color:#000}',
+  '#temprint .tbar button{padding:8px 14px;border-radius:8px;border:0;background:#F6D77A;color:#3b2a1d;font-weight:700;font-size:14px;cursor:pointer}',
+  '#temprint .tbar .x{background:transparent;color:#fff;border:1px solid rgba(255,255,255,.5)}',
+  '#temprint .seg{display:flex;border-radius:8px;overflow:hidden;border:1px solid #F6D77A}',
+  '#temprint .seg button{border-radius:0;background:transparent;color:#fff;font-weight:600;padding:6px 10px}',
+  '#temprint .seg button.on{background:#F6D77A;color:#3b2a1d}',
+  '#temprint .tnote{padding:6px 12px;font-size:12px;color:#5A3E2B;background:#fbf3dc}',
+  '#temprint .pages{display:flex;flex-direction:column;align-items:center;gap:14px;padding:16px}',
+  '#temprint .tem{flex:none;width:150mm;height:100mm;padding:3.5mm;background:#fff;box-shadow:0 1px 6px rgba(0,0,0,.25);overflow:hidden;display:flex;flex-direction:column;gap:2.5mm}',
+  '#temprint.doc .tem{width:100mm;height:150mm}',
+  '#temprint table{border-collapse:collapse;width:100%;table-layout:fixed;margin:0}',
+  '#temprint td,#temprint th{border:0.3mm solid #000;padding:1mm 1.6mm;vertical-align:middle;font-size:10pt;line-height:1.2;overflow:hidden;color:#000;background:#fff;text-align:left}',
+  '#temprint th{font-weight:700;text-align:center;font-size:9pt;height:7mm}',
+  '#temprint .tk{font-weight:700;width:31mm}',
+  '#temprint .tv{word-break:break-all}',
+  '#temprint .tbig{font-size:17pt;font-weight:700}',
+  '#temprint .tfbs{font-weight:700;text-align:center;font-size:11pt}',
+  '#temprint .tqr svg{display:block;width:100%;height:auto}',
+  '#temprint .tten{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:5;overflow:hidden;font-size:9pt;word-break:break-word}',
+  '#temprint .tsku{font-size:10pt;font-weight:700;word-break:break-all}',
+  '#temprint .tqty{font-size:22pt;font-weight:700;text-align:center}',
+  '#temprint .tit{flex:1}',
+  '@media print{html,body{background:#fff!important;padding:0!important;margin:0!important}',
+  'body.temprinting>*:not(#temprint){display:none!important}',
+  '#temprint{position:static;overflow:visible;background:#fff}',
+  '#temprint .tbar,#temprint .tnote{display:none}',
+  '#temprint .pages{display:block;padding:0}',
+  '#temprint .tem{box-shadow:none;page-break-after:always;break-after:page}',
+  '#temprint .tem:last-child{page-break-after:auto;break-after:auto}}'
+].join('\n');
+function printTem() {
+  var d = S.detail;
+  if (!d || !d.bags.length) { toast('Lô chưa có bao nào để in tem.', true); return; }
+  var items = {}; d.items.forEach(function (i) { items[String(i.sku)] = i; });
+  var bags = d.bags.slice().sort(function (a, b) { return a.baoNo - b.baoNo; }).map(function (b) {
+    var it = items[String(b.sku)] || {};
+    return { no: b.baoNo, sku: String(b.sku), ten: it.ten || '', pl: b.phanLoai || it.phanLoai || '', qty: Number(b.qty) || 0 };
+  });
+  var orient = load('godfbs_tem_orient') === 'doc' ? 'doc' : 'ngang';
+  TEMP = { po: d.lot.po || '', asn: d.lot.asn || '', sup: 'GODMOTHER (703090265)', total: bags.length, bags: bags, orient: orient };
+  loadTemLib().then(function () {
+    if (!$('temcss')) { var st = document.createElement('style'); st.id = 'temcss'; st.textContent = TEM_CSS; document.head.appendChild(st); }
+    if (!$('tempage')) { var pg = document.createElement('style'); pg.id = 'tempage'; document.head.appendChild(pg); }
+    var box = $('temprint'); if (box) box.remove();
+    box = document.createElement('div'); box.id = 'temprint';
+    box.innerHTML = '<div class="tbar"><button type="button" class="x" onclick="closeTem()">✕ Đóng</button><b>Tem kiện · ' + esc(TEMP.po) + '</b>' +
+      '<div class="seg"><button type="button" id="temo1" onclick="temOrient(\'ngang\')">Ngang 150×100</button><button type="button" id="temo2" onclick="temOrient(\'doc\')">Dọc 100×150</button></div>' +
+      '<label>Bao số <input type="text" id="tembao" placeholder="Trống = tất cả" oninput="temRender()"></label>' +
+      '<span id="temcnt"></span><button type="button" id="temin" onclick="window.print()">🖨 In</button>' +
+      '<button type="button" onclick="temPrintAll()">🖨 In tất cả (' + TEMP.total + ')</button></div>' +
+      '<div class="tnote">Khi in: chọn máy in nhiệt, khổ giấy đúng 150×100mm (hoặc 100×150mm), Lề = Không, Tỉ lệ = 100% (Mặc định). Ô "Bao số" nhập dạng 1-5, 12 để in lại vài tem.</div>' +
+      '<div class="pages" id="tempages"></div>';
+    document.body.appendChild(box);
+    document.body.classList.add('temprinting');
+    temRender();
+  }).catch(function (e) { toast(e.message, true); });
+}
+function closeTem() {
+  var box = $('temprint'); if (box) box.remove();
+  var pg = $('tempage'); if (pg) pg.textContent = '';   // trả lại khổ giấy bình thường cho các trang in khác
+  document.body.classList.remove('temprinting');
+}
+function temPrintAll() {   // bỏ lọc "Bao số", in đủ tất cả tem của lô
+  $('tembao').value = ''; temRender();
+  setTimeout(function () { window.print(); }, 50);
+}
+function temOrient(o) { TEMP.orient = o; store('godfbs_tem_orient', o); temRender(); }
+function temQr(text) {
+  var q = window.qrcode(0, 'M'); q.addData(String(text)); q.make();
+  var n = q.getModuleCount(), p = '';
+  for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) if (q.isDark(r, c)) p += 'M' + c + ' ' + r + 'h1v1h-1z';
+  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 ' + (n + 2) + ' ' + (n + 2) + '" shape-rendering="crispEdges"><path d="' + p + '" fill="#000"/></svg>';
+}
+function temPick(s) {   // "1-5, 12" -> {1:1,...}; để trống = tất cả (null)
+  s = String(s || '').trim(); if (!s) return null;
+  var set = {};
+  s.split(/[,;\s]+/).forEach(function (part) {
+    var m = part.match(/^(\d+)(?:-(\d+))?$/); if (!m) return;
+    var a = +m[1], b = m[2] ? +m[2] : a; if (a > b) { var t = a; a = b; b = t; }
+    for (var i = a; i <= b && i - a < 5000; i++) set[i] = 1;
+  });
+  return set;
+}
+function temOne(b) {
+  var D = TEMP, ngang = D.orient !== 'doc';
+  var head = '<table><tr><td class="tk">Mã PO</td><td class="tv">' + esc(D.po) + '</td>' + (ngang ? '<td class="tfbs" rowspan="2" style="width:30mm">FBS STANDARD</td>' : '') + '</tr>' +
+    '<tr><td class="tk">ASN</td><td class="tv">' + esc(D.asn) + '</td></tr>' +
+    '<tr><td class="tk">Supplier name</td><td class="tv"' + (ngang ? ' colspan="2"' : '') + '>' + esc(D.sup) + '</td></tr>' +
+    (ngang ? '' : '<tr><td class="tfbs" colspan="2">FBS STANDARD</td></tr>') + '</table>' +
+    '<table><tr><td class="tk">Mã Kiện Hàng</td><td class="tbig">Kiện số: ' + b.no + ' / ' + D.total + '</td></tr></table>';
+  if (ngang) return '<div class="tem">' + head +
+    '<table class="tit"><colgroup><col style="width:30mm"><col style="width:30mm"><col><col style="width:24mm"><col style="width:17mm"></colgroup>' +
+    '<tr><th>Mã SKU</th><th>SKU code</th><th>Tên hàng</th><th>Phân loại</th><th>Số lượng</th></tr>' +
+    '<tr><td class="tsku">' + esc(b.sku) + '</td><td class="tqr" style="padding:1mm">' + temQr(b.sku) + '</td>' +
+    '<td><div class="tten">' + esc(b.ten) + '</div></td><td style="font-size:9pt;word-break:break-word">' + esc(b.pl) + '</td><td class="tqty">' + b.qty + '</td></tr></table></div>';
+  return '<div class="tem">' + head +
+    '<table class="tit"><colgroup><col style="width:24mm"><col></colgroup>' +
+    '<tr><td class="tk">Mã SKU</td><td class="tsku">' + esc(b.sku) + '</td></tr>' +
+    '<tr><td class="tk">SKU code</td><td class="tqr" style="padding:1.5mm"><div style="width:42mm">' + temQr(b.sku) + '</div></td></tr>' +
+    '<tr><td class="tk">Tên hàng</td><td><div class="tten">' + esc(b.ten) + '</div></td></tr>' +
+    '<tr><td class="tk">Phân loại</td><td>' + esc(b.pl) + '</td></tr>' +
+    '<tr><td class="tk">Số lượng</td><td class="tqty" style="text-align:left">' + b.qty + ' pcs</td></tr></table></div>';
+}
+function temRender() {
+  var box = $('temprint'); if (!box || !TEMP) return;
+  var set = temPick($('tembao').value);
+  var list = TEMP.bags.filter(function (b) { return !set || set[b.no]; });
+  var doc = TEMP.orient === 'doc';
+  box.className = doc ? 'doc' : '';
+  $('tempage').textContent = doc ? '@page{size:100mm 150mm;margin:0}' : '@page{size:150mm 100mm;margin:0}';
+  $('temo1').className = doc ? '' : 'on';
+  $('temo2').className = doc ? 'on' : '';
+  $('temcnt').textContent = list.length + ' tem';
+  $('temin').textContent = '🖨 In ' + list.length + ' tem đang chọn';
+  $('temin').style.display = set ? '' : 'none';   // không lọc thì chỉ cần nút "In tất cả"
+  $('tempages').innerHTML = list.length ? list.map(temOne).join('') : '<div style="padding:30px">Không có bao nào khớp số đã nhập.</div>';
 }
 function exportNow() {
   call('exportPxk', { lotId: S.lotId }, { text: 'Đang tạo phiếu xuất kho…' }).then(function (r) {

@@ -462,6 +462,7 @@ function call(action, data, opts) {
 }
 
 var ICON = {
+  shelf: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v18M20 3v18M4 10h16M4 17h16"/><path d="M8 10V6h4v4M13 17v-4h4v4"/></svg>',
   menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
   chev: '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   folder: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -570,6 +571,7 @@ function navBar(active) {
     '<div class="nscroll">' +
     '<div class="ngrp">Công việc</div>' +
     navFolder('fbs', ICON.box, 'Đóng hàng FBS', fbs) +
+    (hhAny() ? navFolder('hh', ICON.shelf, 'Hàng hoá · Kho HN', hhNavBody(), '', v === 'hh') : '') +
     (isAdmin() ? '<div class="ngrp">Quản lý</div>' + navFolder('quanly', ICON.gear, 'Cài đặt', navItem(active === 'users', "navGo('users')", ICON.user, 'Tài khoản') +
       navItem(active === 'perms', "navGo('perms')", ICON.gear, 'Phân quyền chức năng')) : '') +
     '</div>' +
@@ -580,7 +582,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'hh' ? 'Hàng hoá · Kho HN' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -654,6 +656,7 @@ function go(view, arg) {
   if (view === 'import') return viewImport();
   if (view === 'users') return loadUsers();
   if (view === 'perms') return loadPerms();
+  if (view === 'hh') return loadHh(arg);
 }
 
 /* ===================== ĐĂNG NHẬP ===================== */
@@ -1521,9 +1524,10 @@ function loadScanLib() {
   });
   return scanLibP;
 }
-function openScanner() {
+function openScanner(onCode) {
   if (SCAN) return;
-  refreshCodes();   // lấy bảng ghép mã mới nhất (người khác vừa ghép) trong lúc mở camera
+  if (typeof onCode !== 'function') onCode = null;
+  if (!onCode) refreshCodes();   // lấy bảng ghép mã mới nhất (người khác vừa ghép) trong lúc mở camera
   var box = document.createElement('div');
   box.className = 'scanbox'; box.id = 'scanbox';
   box.innerHTML = '<div class="scanhead"><div class="bold">Quét barcode / mã QR</div>' +
@@ -1531,7 +1535,7 @@ function openScanner() {
     '<div id="scanview" class="scanview"></div>' +
     '<div class="scanhint" id="scanhint">Đưa mã vạch vào giữa khung, giữ yên tay…</div>';
   document.body.appendChild(box);
-  SCAN = { qr: null, done: false };
+  SCAN = { qr: null, done: false, onCode: onCode };
   loadScanLib().then(function () {
     if (!SCAN) return;
     var cfg = { fps: 12, qrbox: function (w, h) { var s = Math.min(w, h); return { width: Math.round(Math.min(w * 0.85, 340)), height: Math.round(s * 0.5) }; },
@@ -1592,6 +1596,11 @@ function itemsByCode(code) {
 }
 
 function gotScan(text) {
+  if (SCAN && SCAN.onCode) {   // quét liên tục (nhập kho, kiểm kê): bỏ qua cùng 1 mã lặp lại trong 1,5 giây
+    var c0 = normCode(text), t0 = Date.now();
+    if (!c0 || (c0 === SCAN.last && t0 - SCAN.lastAt < 1500)) return;
+    SCAN.last = c0; SCAN.lastAt = t0; SCAN.onCode(c0); return;
+  }
   if (!SCAN || SCAN.done || !S.bag || !S.detail) return;
   var code = normCode(text);
   var hits = itemsByCode(code);
@@ -2305,6 +2314,304 @@ function resetPw(u) {
   ask('Mật khẩu mới cho ' + u + ' (ít nhất 6 ký tự):', { input: true, ok: 'Đổi mật khẩu' }).then(function (p) {
     if (!p) return;
     call('resetPassword', { username: u, password: p }).then(function () { toast('Đã đổi mật khẩu.'); });
+  });
+}
+
+/* ===================== HÀNG HOÁ & TỒN KHO (kho HN) ===================== */
+/* Danh mục đọc từ file sản xuất (sheet DATA SP), chị chọn SKU tổng cần quản lý. Tồn kho do app tự giữ:
+   Nhập kho = quét hàng về (cộng), Kiểm kê = đếm thực tế (đặt lại tồn). Mỗi lần đổi đều có lịch sử. */
+var HH_TABS = [
+  { k: 'ton', t: 'Tồn kho', p: 'hhView' }, { k: 'nhap', t: 'Nhập kho', p: 'hhNhap' }, { k: 'kiem', t: 'Kiểm kê', p: 'hhKiemKe' },
+  { k: 'log', t: 'Lịch sử', p: 'hhView' }, { k: 'chon', t: 'Chọn mã quản lý', p: 'hhSetup' }
+];
+function hhAny() { return HH_TABS.some(function (x) { return can(x.p); }); }
+function hhTabsOk() { return HH_TABS.filter(function (x) { return can(x.p); }); }
+function navHh(tab) { navOpen(false); go('hh', tab); }
+function hhNavBody() {
+  return hhTabsOk().map(function (x) {
+    return navItem(S.view === 'hh' && S.hhTab === x.k, "navHh('" + x.k + "')", '', x.t, '', 'sub');
+  }).join('');
+}
+function loadHh(tab) {
+  var ok = hhTabsOk();
+  if (!ok.length) { toast('Tài khoản của bạn chưa được mở chức năng Hàng hoá.', true); return go('lots'); }
+  if (!tab || !ok.some(function (x) { return x.k === tab; })) tab = (ok.some(function (x) { return x.k === S.hhTab; }) ? S.hhTab : ok[0].k);
+  S.hhTab = tab;
+  if (tab === 'chon') return hhLoadConfig();
+  if (tab === 'log') return hhLoadLog();
+  if (S.hh) viewHh();
+  call('hhList', {}, S.hh ? { quiet: true } : { text: 'Đang tải hàng hoá…' }).then(function (r) {
+    S.hh = r; if (S.view === 'hh' && S.hhTab === tab && !editing()) viewHh(true);
+  }).catch(function () {});
+}
+function hhBySku() { var m = {}; ((S.hh && S.hh.items) || []).forEach(function (i) { m[i.sku] = i; }); return m; }
+function hhHead() {
+  var tabs = hhTabsOk().map(function (x) {
+    return '<button type="button" class="tab ' + (S.hhTab === x.k ? 'on' : '') + '" onclick="go(\'hh\',\'' + x.k + '\')">' + x.t + '</button>';
+  }).join('');
+  return '<div class="title">Hàng hoá · Kho HN</div><div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>';
+}
+function hhShell(body, keep) {
+  render('<div class="wrap stack">' + hhHead() + body + '</div>' + nav('hh'), keep);
+}
+function hhEmpty() {
+  return '<div class="card stack"><div class="bold">Chưa có mã hàng nào được chọn để quản lý.</div>' +
+    '<div class="muted small">Quản trị vào thẻ "Chọn mã quản lý", dán link file sản xuất rồi tích các SKU tổng cần theo dõi.</div>' +
+    (can('hhSetup') ? '<div><button type="button" class="btn pri" onclick="go(\'hh\',\'chon\')">Chọn mã quản lý</button></div>' : '') + '</div>';
+}
+function viewHh(keep) {
+  if (!S.hh) return hhShell('<div class="card muted">Đang tải…</div>', keep);
+  if (!S.hh.items.length) return hhShell(hhEmpty(), keep);
+  if (S.hhTab === 'nhap' || S.hhTab === 'kiem') return viewHhPhieu(keep);
+  return viewHhTon(keep);
+}
+
+/* ---------- Tồn kho ---------- */
+function fmtN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+function viewHhTon(keep) {
+  var it = S.hh.items, tk = 0, tx = 0, sx = 0;
+  it.forEach(function (i) { tk += i.tonKho; tx += i.tonXuong; sx += i.dangSx; });
+  var body = '<div class="card stack">' +
+    '<div class="row wrapflex" style="gap:8px"><span class="chip soft">' + it.length + ' mã lẻ</span><span class="chip ok">Tồn kho ' + fmtN(tk) + '</span>' +
+    '<span class="chip warn">Tồn xưởng ' + fmtN(tx) + '</span><span class="chip soft">Đang SX ' + fmtN(sx) + '</span></div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="hhFilter()" value="' + esc(S.hhQ || '') + '">' +
+    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật tồn xưởng</button></div>' +
+    '<div class="muted small">Tồn kho: app tự cộng trừ (nhập kho, kiểm kê). Tồn xưởng và Đang SX lấy từ file sản xuất' + (S.hh.syncAt ? ', cập nhật lúc ' + esc(S.hh.syncAt) : '') + '.</div>' +
+    '<div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Tồn kho</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th></tr></thead>' +
+    '<tbody id="hhtb">' + hhTonRows() + '</tbody></table></div></div>';
+  hhShell(body, keep);
+}
+function hhTonRows() {
+  var q = foldQ(S.hhQ || ''), g = {}, order = [];
+  S.hh.items.forEach(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return;
+    if (!g[i.skuTong]) { g[i.skuTong] = []; order.push(i.skuTong); }
+    g[i.skuTong].push(i);
+  });
+  if (!order.length) return '<tr><td colspan="5" class="muted">Không có mã nào khớp.</td></tr>';
+  return order.map(function (k) {
+    var l = g[k], a = 0, b = 0, c = 0;
+    l.forEach(function (i) { a += i.tonKho; b += i.tonXuong; c += i.dangSx; });
+    return '<tr style="background:var(--soft)"><td colspan="2"><b>' + esc(k) + '</b> <span class="muted small">' + esc(l[0].tenTem || l[0].ten) + '</span></td>' +
+      '<td class="num bold">' + fmtN(a) + '</td><td class="num bold">' + fmtN(b) + '</td><td class="num bold">' + fmtN(c) + '</td></tr>' +
+      l.map(function (i) {
+        return '<tr><td>' + esc(i.sku) + '</td><td>' + esc(i.phanLoai) + '</td><td class="num bold"' + (i.tonKho < 0 ? ' style="color:var(--bad)"' : '') + '>' + fmtN(i.tonKho) + '</td>' +
+          '<td class="num">' + fmtN(i.tonXuong) + '</td><td class="num">' + fmtN(i.dangSx) + '</td></tr>';
+      }).join('');
+  }).join('');
+}
+function hhFilter() { S.hhQ = $('hhq').value; $('hhtb').innerHTML = hhTonRows(); }
+function hhSync() {
+  call('hhSync', {}, { text: 'Đang đọc file sản xuất…' }).then(function (r) {
+    S.hh.items = r.items; S.hh.syncAt = r.syncAt;
+    toast('Đã cập nhật tồn xưởng' + (r.added ? ', thêm ' + r.added + ' mã lẻ mới' : '') + '.');
+    viewHh(true);
+  });
+}
+
+/* ---------- Phiếu nhập kho / kiểm kê (quét hoặc gõ mã) ---------- */
+function hhLoai() { return S.hhTab === 'kiem' ? 'kiemKe' : 'nhap'; }
+function hhDraftKey(loai) { return 'godfbs_hh_' + loai + '_' + (S.user ? S.user.username : ''); }
+function hhDraft() {
+  var loai = hhLoai();
+  S.hhDraft = S.hhDraft || {};
+  if (!S.hhDraft[loai]) {
+    var d = null; try { d = JSON.parse(load(hhDraftKey(loai)) || 'null'); } catch (e) { d = null; }
+    S.hhDraft[loai] = d && d.order ? d : { order: [], sl: {}, ghiChu: '' };
+  }
+  return S.hhDraft[loai];
+}
+function hhSaveDraft() { var loai = hhLoai(); store(hhDraftKey(loai), JSON.stringify(S.hhDraft[loai])); }
+function viewHhPhieu(keep) {
+  var kiem = hhLoai() === 'kiemKe', d = hhDraft();
+  var intro = kiem
+    ? 'Đếm hàng thực tế rồi quét (mỗi lần quét +1) hoặc gõ số. Khi chốt, tồn kho của các mã trong phiếu được đặt lại đúng bằng số đếm. Mã không có trong phiếu giữ nguyên.'
+    : 'Quét mã SKU từng món hàng về kho (mỗi lần quét +1), hoặc gõ mã rồi sửa số lượng. Chốt phiếu thì tồn kho cộng thêm.';
+  var body = '<div class="card stack"><div class="muted small">' + intro + '</div>' +
+    '<div class="row" style="gap:8px"><input class="in grow" id="hhcode" autocomplete="off" autocapitalize="characters" placeholder="Quét hoặc gõ mã SKU rồi Enter" ' +
+    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();hhAddCode(this.value);this.value=\'\'}">' +
+    (CAN_SCAN ? '<button type="button" class="btn sm" onclick="hhCam()" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+    (kiem ? '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn sm" onclick="hhKiemAll()">Gõ số cho tất cả mã</button><span class="muted small">Dùng khi nhập tồn đầu kỳ: hiện mọi mã kèm số tồn hiện tại để sửa.</span></div>' : '') +
+    '<div id="hhlines" class="stack">' + hhLines() + '</div>' +
+    '<label class="f">Ghi chú phiếu<input class="in" id="hhnote" maxlength="300" placeholder="' + (kiem ? 'Ví dụ: Tồn đầu kỳ 22/11, kiểm kê cuối tháng…' : 'Ví dụ: Toa hàng xưởng X03 ngày 22/11') + '" value="' + esc(d.ghiChu || '') + '" oninput="hhDraft().ghiChu=this.value;hhSaveDraft()"></label>' +
+    '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn pri" id="hhgo" onclick="hhSubmit()">' + hhBtnText() + '</button>' +
+    '<button type="button" class="btn" onclick="hhClear()">Xoá phiếu</button></div></div>';
+  hhShell(body, keep);
+  setTimeout(function () { var c = $('hhcode'); if (c && !('ontouchstart' in window)) c.focus(); }, 30);
+}
+function hhBtnText() {
+  var d = hhDraft(), n = 0;
+  d.order.forEach(function (s) { n += Number(d.sl[s]) || 0; });
+  return (hhLoai() === 'kiemKe' ? 'Chốt kiểm kê' : 'Chốt nhập kho') + ' (' + d.order.length + ' mã, ' + fmtN(n) + ' cái)';
+}
+function hhLines() {
+  var d = hhDraft(), by = hhBySku(), kiem = hhLoai() === 'kiemKe';
+  if (!d.order.length) return '<div class="muted small">Chưa có món nào trong phiếu.</div>';
+  return d.order.slice().reverse().map(function (s) {
+    var i = by[s] || {}, v = d.sl[s], diff = kiem ? (Number(v) || 0) - (i.tonKho || 0) : 0;
+    return '<div class="card row between" style="padding:10px 12px;gap:10px" data-sku="' + esc(s) + '"><div class="grow" style="min-width:0">' +
+      '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div>' +
+      '<div class="small">Tồn app: <b>' + fmtN(i.tonKho) + '</b>' + (kiem ? ' · Lệch: <b style="color:' + (diff ? 'var(--bad)' : 'var(--ok)') + '">' + (diff > 0 ? '+' : '') + fmtN(diff) + '</b>' : ' → sau nhập: <b>' + fmtN((i.tonKho || 0) + (Number(v) || 0)) + '</b>') + '</div></div>' +
+      '<div class="row" style="gap:6px;flex:none"><button type="button" class="btn sm" onclick="hhStep(this,-1)">−</button>' +
+      '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(v) + '" onchange="hhSet(this)">' +
+      '<button type="button" class="btn sm" onclick="hhStep(this,1)">+</button>' +
+      '<button type="button" class="btn sm" title="Bỏ khỏi phiếu" onclick="hhDel(this)">✕</button></div></div>';
+  }).join('');
+}
+function hhRedraw() { $('hhlines').innerHTML = hhLines(); $('hhgo').textContent = hhBtnText(); hhSaveDraft(); }
+function hhSkuOf(el) { return el.closest('[data-sku]').getAttribute('data-sku'); }
+function hhStep(el, n) { var d = hhDraft(), s = hhSkuOf(el); d.sl[s] = Math.max(0, (Number(d.sl[s]) || 0) + n); hhRedraw(); }
+function hhSet(el) { var d = hhDraft(), s = hhSkuOf(el), v = Math.round(Number(el.value)); d.sl[s] = isFinite(v) && v >= 0 ? v : 0; hhRedraw(); }
+function hhDel(el) { var d = hhDraft(), s = hhSkuOf(el); d.order = d.order.filter(function (x) { return x !== s; }); delete d.sl[s]; hhRedraw(); }
+function hhFind(code) {
+  code = normCode(code); if (!code) return null;
+  var by = hhBySku(); if (by[code]) return by[code];
+  var hits = S.hh.items.filter(function (i) { return i.sku.indexOf(code) >= 0; });
+  return hits.length === 1 ? hits[0] : null;
+}
+function hhAddCode(code) {
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code);
+  var hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([60, 60, 60]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return;
+  }
+  var d = hhDraft();
+  if (d.order.indexOf(it.sku) < 0) { d.order.push(it.sku); d.sl[it.sku] = 0; }
+  else { d.order = d.order.filter(function (x) { return x !== it.sku; }); d.order.push(it.sku); }
+  d.sl[it.sku] = (Number(d.sl[it.sku]) || 0) + 1;
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  if (hint) hint.innerHTML = 'Đã quét <b>' + esc(it.sku) + '</b> → ' + d.sl[it.sku] + ' cái. Quét món tiếp theo…';
+  if ($('hhlines')) hhRedraw(); else hhSaveDraft();
+}
+function hhCam() { openScanner(hhAddCode); }
+function hhKiemAll() {
+  var d = hhDraft();
+  S.hh.items.forEach(function (i) { if (d.order.indexOf(i.sku) < 0) { d.order.unshift(i.sku); d.sl[i.sku] = i.tonKho; } });
+  hhRedraw();
+}
+function hhClear() {
+  ask('Xoá hết các món trong phiếu này? (Chưa chốt nên tồn kho không đổi.)', { ok: 'Xoá phiếu', danger: true }).then(function (ok) {
+    if (!ok) return;
+    S.hhDraft[hhLoai()] = { order: [], sl: {}, ghiChu: '' }; hhSaveDraft(); viewHh(true);
+  });
+}
+function hhSubmit() {
+  var loai = hhLoai(), d = hhDraft(), by = hhBySku();
+  var lines = d.order.map(function (s) { return { sku: s, sl: Number(d.sl[s]) || 0 }; });
+  if (loai === 'nhap') lines = lines.filter(function (l) { return l.sl > 0; });
+  if (!lines.length) return toast('Phiếu chưa có món nào.', true);
+  var msg;
+  if (loai === 'nhap') {
+    var n = 0; lines.forEach(function (l) { n += l.sl; });
+    msg = 'Chốt nhập kho ' + lines.length + ' mã, tổng ' + fmtN(n) + ' cái? Tồn kho sẽ cộng thêm.';
+  } else {
+    var lech = lines.filter(function (l) { return l.sl !== ((by[l.sku] || {}).tonKho || 0); });
+    if (!lech.length) return toast('Số đếm khớp hết với tồn app, không có gì cần sửa.');
+    msg = 'Chốt kiểm kê: ' + lech.length + ' mã bị lệch sẽ được đặt lại tồn đúng bằng số đếm.\n\n' +
+      lech.slice(0, 8).map(function (l) { return l.sku + ': ' + fmtN((by[l.sku] || {}).tonKho) + ' → ' + fmtN(l.sl); }).join('\n') + (lech.length > 8 ? '\n…' : '');
+    lines = lech;
+  }
+  ask(msg, { ok: 'Chốt phiếu' }).then(function (ok) {
+    if (!ok) return;
+    call('hhAdjust', { loai: loai, lines: lines, ghiChu: d.ghiChu || '' }, { text: 'Đang ghi phiếu…' }).then(function (r) {
+      S.hh.items = r.items;
+      S.hhDraft[loai] = { order: [], sl: {}, ghiChu: '' }; hhSaveDraft();
+      toast('Đã chốt phiếu ' + r.phieu + ' (' + r.changed + ' mã).');
+      viewHh(true);
+    });
+  });
+}
+
+/* ---------- Lịch sử ---------- */
+function hhLoadLog() {
+  hhShell('<div class="card muted">Đang tải lịch sử…</div>');
+  call('hhLog', { sku: S.hhLogQ || '' }, { quiet: true }).then(function (r) { S.hhLog = r; if (S.view === 'hh' && S.hhTab === 'log') viewHhLog(); });
+}
+function viewHhLog() {
+  var rows = (S.hhLog || []).map(function (l) {
+    return '<tr><td style="white-space:nowrap">' + esc(l.time) + '</td><td>' + esc(l.user) + '</td><td>' + esc(l.loaiTen) + '</td><td>' + esc(l.sku) + '</td>' +
+      '<td class="num bold" style="color:' + (l.sl < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (l.sl > 0 ? '+' : '') + fmtN(l.sl) + '</td>' +
+      '<td class="num">' + fmtN(l.tonTruoc) + ' → <b>' + fmtN(l.tonSau) + '</b></td><td>' + esc(l.ghiChu) + '<div class="muted small">' + esc(l.phieu) + '</div></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">Chưa có lịch sử.</td></tr>';
+  hhShell('<div class="card stack"><div class="row" style="gap:8px"><input class="in grow" id="hhlq" placeholder="Lọc theo mã SKU" value="' + esc(S.hhLogQ || '') + '" ' +
+    'onkeydown="if(event.key===\'Enter\'){S.hhLogQ=this.value;hhLoadLog()}"><button type="button" class="btn sm" onclick="S.hhLogQ=$(\'hhlq\').value;hhLoadLog()">Lọc</button></div>' +
+    '<div class="muted small">500 lần thay đổi gần nhất.</div>' +
+    '<div class="tablebox"><table class="t" style="min-width:760px"><thead><tr><th>Thời gian</th><th>Người làm</th><th>Loại</th><th>Mã SKU</th><th class="num">Số lượng</th><th class="num">Tồn</th><th>Ghi chú / Phiếu</th></tr></thead><tbody>' +
+    rows + '</tbody></table></div></div>');
+}
+
+/* ---------- Chọn mã quản lý (quản trị) ---------- */
+function hhLoadConfig() {
+  hhShell('<div class="card muted">Đang tải…</div>');
+  call('hhConfig', {}, { quiet: true }).then(function (c) {
+    S.hhConf = c; S.hhSel = {}; (c.tong || []).forEach(function (t) { S.hhSel[t] = 1; });
+    if (S.hhCat && S.hhCat.srcId && c.srcUrl.indexOf(S.hhCat.srcId) < 0) S.hhCat = null;
+    viewHhChon();
+  });
+}
+function viewHhChon() {
+  var c = S.hhConf || {}, cat = S.hhCat;
+  var body = '<div class="card stack"><div class="bold">File sản xuất</div>' +
+    '<div class="muted small">App chỉ đọc sheet "DATA SP" (mã, tên, phân loại, nhóm, tồn xưởng, đang sản xuất), không đọc cột giá và không sửa gì trong file.</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhurl" placeholder="Dán link Google Sheet file sản xuất" value="' + esc((cat && cat.url) || c.srcUrl || '') + '">' +
+    '<button type="button" class="btn pri" onclick="hhReadCat()">Đọc danh mục</button></div>' +
+    (cat ? '<div class="small">Đã đọc <b>' + esc(cat.title) + '</b>: ' + cat.tong.length + ' SKU tổng.' + (cat.dup && cat.dup.length ? ' <span class="chip warn">Mã lẻ bị trùng trong file: ' + esc(cat.dup.join(', ')) + '</span>' : '') + '</div>' : '') + '</div>';
+  if (cat) {
+    var nhoms = {}; cat.tong.forEach(function (t) { (t.nhom || '').split(',').forEach(function (x) { x = x.trim(); if (x) nhoms[x] = 1; }); });
+    body += '<div class="card stack"><div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhcq" placeholder="Tìm SKU tổng hoặc tên" oninput="hhCatDraw()">' +
+      '<select class="in" id="hhcn" style="width:auto" onchange="hhCatDraw()"><option value="">Mọi nhóm</option>' + Object.keys(nhoms).map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="row wrapflex" style="gap:14px"><label class="small"><input type="checkbox" id="hhchn" checked onchange="hhCatDraw()"> Chỉ hàng có kho Hà Nội</label>' +
+      '<label class="small"><input type="checkbox" id="hhcsel" onchange="hhCatDraw()"> Chỉ mã đã chọn</label></div>' +
+      '<div class="tablebox"><table class="t" style="min-width:620px"><thead><tr><th style="width:44px"></th><th>SKU tổng</th><th>Tên</th><th>Nhóm</th><th class="num">Mã lẻ</th><th class="num">Tồn xưởng</th></tr></thead><tbody id="hhctb"></tbody></table></div>' +
+      '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn pri" id="hhcsave" onclick="hhSaveSel()"></button>' +
+      '<span class="muted small">Bỏ chọn một mã thì mã đó ẩn khỏi danh sách, số tồn và lịch sử vẫn được giữ.</span></div></div>';
+  }
+  hhShell(body);
+  if (cat) hhCatDraw();
+}
+function hhReadCat() {
+  var url = $('hhurl').value.trim();
+  if (!url) return toast('Dán link file sản xuất trước nhé.', true);
+  call('hhCatalog', { url: url }, { text: 'Đang đọc file sản xuất…' }).then(function (r) {
+    r.url = url; S.hhCat = r;
+    if (!S.hhSel || !Object.keys(S.hhSel).length) { S.hhSel = {}; (r.chosen || []).forEach(function (t) { S.hhSel[t] = 1; }); }
+    viewHhChon();
+  });
+}
+function hhCatDraw() {
+  var q = foldQ($('hhcq').value), n = $('hhcn').value, hn = $('hhchn').checked, only = $('hhcsel').checked;
+  var list = S.hhCat.tong.filter(function (t) {
+    if (only && !S.hhSel[t.skuTong]) return false;
+    if (hn && !S.hhSel[t.skuTong] && foldQ(t.kho).indexOf('ha noi') < 0) return false;
+    if (n && (t.nhom || '').indexOf(n) < 0) return false;
+    return !q || foldQ(t.skuTong + ' ' + t.ten).indexOf(q) >= 0;
+  });
+  $('hhctb').innerHTML = list.map(function (t) {
+    return '<tr><td><input type="checkbox" style="width:20px;height:20px;accent-color:var(--pri)" data-t="' + esc(t.skuTong) + '"' + (S.hhSel[t.skuTong] ? ' checked' : '') + ' onchange="hhTick(this)"></td>' +
+      '<td class="bold">' + esc(t.skuTong) + '</td><td>' + esc(t.ten) + '<div class="muted small">' + esc(t.kho) + '</div></td><td class="small">' + esc(t.nhom) + '</td>' +
+      '<td class="num">' + t.count + '</td><td class="num">' + fmtN(t.tonXuong) + '</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">Không có mã nào khớp.</td></tr>';
+  hhSelBtn();
+}
+function hhTick(el) { var t = el.getAttribute('data-t'); if (el.checked) S.hhSel[t] = 1; else delete S.hhSel[t]; hhSelBtn(); }
+function hhSelBtn() {
+  var n = Object.keys(S.hhSel).length, m = 0;
+  S.hhCat.tong.forEach(function (t) { if (S.hhSel[t.skuTong]) m += t.count; });
+  $('hhcsave').textContent = 'Lưu lựa chọn (' + n + ' SKU tổng, ' + m + ' mã lẻ)';
+}
+function hhSaveSel() {
+  var tong = Object.keys(S.hhSel);
+  ask('Lưu ' + tong.length + ' SKU tổng làm danh sách hàng quản lý ở kho HN? App sẽ đọc lại file sản xuất để lấy các mã lẻ.', { ok: 'Lưu' }).then(function (ok) {
+    if (!ok) return;
+    call('hhSaveSelection', { url: S.hhCat.url, tong: tong }, { text: 'Đang lưu và đọc file sản xuất…' }).then(function (r) {
+      S.hh = { items: r.items, syncAt: r.syncAt, hasSrc: true, tongCount: tong.length };
+      toast('Đã lưu. Đang quản lý ' + r.items.length + ' mã lẻ' + (r.added ? ' (thêm mới ' + r.added + ')' : '') + '.');
+      go('hh', 'ton');
+    });
   });
 }
 

@@ -582,7 +582,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'hh' ? 'Hàng hoá · Kho HN' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'hh' || S.view === 'nbag' ? 'Hàng hoá · Kho HN' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -1865,7 +1865,7 @@ function recStopped(r, bag) {
   vqSave(job);
   closeRecorder(false);
   if (REC === r) REC = null;
-  if (S.bag === bag && S.view === 'bag') viewBag();
+  if (S.bag === bag) bagRedraw();
   if (r.cut) toast('Quay bị gián đoạn. Phần đã quay vẫn còn, chọn Giữ hoặc Quay lại.', true);
   vqKick();
 }
@@ -1894,7 +1894,7 @@ function gotVideoFile(input) {
       job.parts.push(f); job.size = f.size; job.final = true; job.keep = true; job.status = 'up';
       vqSave(job);
       S.bag.job = job; S.bag.videoId = null;
-      viewBag(); vqKick();
+      bagRedraw(); vqKick();
     });
 }
 
@@ -1904,17 +1904,17 @@ function redoVideo() {
   ask('Quay lại video khác? Video cũ sẽ bị bỏ (tự vào thùng rác Drive khi chốt bao).', { ok: 'Quay lại' }).then(function (ok) {
     if (!ok || S.bag !== b) return;
     if (b.job) { vqDrop(b.job); b.job = null; }
-    b.videoId = null; viewBag();
+    b.videoId = null; bagRedraw();
     if (CAN_RECORD) recordVideo();
   });
 }
 function keepCutVideo() {
   var j = S.bag && S.bag.job; if (!j) return;
-  j.keep = true; j.status = 'up'; vqSave(j); viewBag(); vqKick();
+  j.keep = true; j.status = 'up'; vqSave(j); bagRedraw(); vqKick();
 }
 function redoCutVideo() {
   var b = S.bag; if (!b || !b.job) return;
-  vqDrop(b.job); b.job = null; viewBag();
+  vqDrop(b.job); b.job = null; bagRedraw();
   if (CAN_RECORD) recordVideo(); else $('vfile').click();
 }
 
@@ -2088,7 +2088,7 @@ function vqDone(job, fileId) {
   var b = S.bag;
   if (b && b.job === job) {   // bao đang mở trên màn hình: gắn video ngay
     b.videoId = fileId; b.job = null;
-    if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
+    if (S.view === 'nbag') nbRedraw(); else if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
   }
   // bao chưa chốt: giữ bản ghi (có mã file) tới khi chốt bao, lỡ tắt app thì mở lại bao vẫn gắn được video
   toast('Video bao ' + (job.baoNo || '') + ' đã lưu lên Drive.');
@@ -2100,7 +2100,7 @@ function vqAttach(bag) {
   if (!j) return;
   if (j.fileId) { bag.videoId = j.fileId; vqDrop(j); }
   else { if (j.status === 'rec') { j.status = 'hold'; j.final = true; vqSave(j); } bag.job = j; }
-  if (S.bag === bag && S.view === 'bag') viewBag();
+  if (S.bag === bag) bagRedraw();
 }
 
 /* Mở app: nạp các video còn dở trên máy, tải tiếp */
@@ -2210,11 +2210,11 @@ function gotPhotos(input) {
     compressImage(f, 1280, 0.75).then(function (dataUrl) {
       var bag = S.bag;
       var p = { thumb: dataUrl, id: null };
-      bag.photos.push(p); viewBag();
+      bag.photos.push(p); bagRedraw();
       return bag.ready.then(function () { return call('uploadPhoto', { bagId: bag.bagId, dataUrl: dataUrl }, { quiet: true }); }).then(function (r) {
-        p.id = r.fileId; if (S.bag === bag) viewBag();
+        p.id = r.fileId; if (S.bag === bag) bagRedraw();
       }).catch(function () {
-        bag.photos.splice(bag.photos.indexOf(p), 1); if (S.bag === bag) viewBag();
+        bag.photos.splice(bag.photos.indexOf(p), 1); if (S.bag === bag) bagRedraw();
       });
     });
   });
@@ -2326,7 +2326,7 @@ var HH_TABS = [
 ];
 function hhAny() { return HH_TABS.some(function (x) { return can(x.p); }); }
 function hhTabsOk() { return HH_TABS.filter(function (x) { return can(x.p); }); }
-function navHh(tab) { navOpen(false); go('hh', tab); }
+function navHh(tab) { navOpen(false); if (tab === 'nhap') S.nkId = null; go('hh', tab); }
 function hhNavBody() {
   return hhTabsOk().map(function (x) {
     return navItem(S.view === 'hh' && S.hhTab === x.k, "navHh('" + x.k + "')", '', x.t, '', 'sub');
@@ -2339,6 +2339,10 @@ function loadHh(tab) {
   S.hhTab = tab;
   if (tab === 'chon') return hhLoadConfig();
   if (tab === 'log') return hhLoadLog();
+  if (tab === 'nhap') {
+    if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+    return S.nkId ? nkOpen(S.nkId) : nkLoadList();
+  }
   if (S.hh) viewHh();
   call('hhList', {}, S.hh ? { quiet: true } : { text: 'Đang tải hàng hoá…' }).then(function (r) {
     S.hh = r; if (S.view === 'hh' && S.hhTab === tab && !editing()) viewHh(true);
@@ -2347,7 +2351,7 @@ function loadHh(tab) {
 function hhBySku() { var m = {}; ((S.hh && S.hh.items) || []).forEach(function (i) { m[i.sku] = i; }); return m; }
 function hhHead() {
   var tabs = hhTabsOk().map(function (x) {
-    return '<button type="button" class="tab ' + (S.hhTab === x.k ? 'on' : '') + '" onclick="go(\'hh\',\'' + x.k + '\')">' + x.t + '</button>';
+    return '<button type="button" class="tab ' + (S.hhTab === x.k ? 'on' : '') + '" onclick="hhGoTab(\'' + x.k + '\')">' + x.t + '</button>';
   }).join('');
   return '<div class="title">Hàng hoá · Kho HN</div><div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>';
 }
@@ -2362,7 +2366,8 @@ function hhEmpty() {
 function viewHh(keep) {
   if (!S.hh) return hhShell('<div class="card muted">Đang tải…</div>', keep);
   if (!S.hh.items.length) return hhShell(hhEmpty(), keep);
-  if (S.hhTab === 'nhap' || S.hhTab === 'kiem') return viewHhPhieu(keep);
+  if (S.hhTab === 'nhap') return S.nkId && S.nkCur ? viewNk(keep) : viewNkList();
+  if (S.hhTab === 'kiem') return viewHhPhieu(keep);
   return viewHhTon(keep);
 }
 
@@ -2611,6 +2616,264 @@ function hhSaveSel() {
       S.hh = { items: r.items, syncAt: r.syncAt, hasSrc: true, tongCount: tong.length };
       toast('Đã lưu. Đang quản lý ' + r.items.length + ' mã lẻ' + (r.added ? ' (thêm mới ' + r.added + ')' : '') + '.');
       go('hh', 'ton');
+    });
+  });
+}
+
+/* ---------- Nhập kho theo phiếu + bao ----------
+   Phiếu = 1 lần hàng về (chụp ảnh phiếu xuất kho của xưởng). Mỗi bao: quay video bóc hàng → chọn mã + số lượng → chốt bao (cộng tồn ngay).
+   Quay / tải video dùng chung cách đóng bao FBS (vừa quay vừa tải, tắt app không mất). */
+function hhGoTab(k) { if (k === 'nhap') S.nkId = null; go('hh', k); }
+function nkThumbs() { S.nkThumb = S.nkThumb || {}; return S.nkThumb; }
+function nkLoadList() {
+  if (S.nkList) viewNkList(); else hhShell('<div class="card muted">Đang tải phiếu nhập…</div>');
+  call('nkList', {}, { quiet: true }).then(function (l) { S.nkList = l; if (S.view === 'hh' && S.hhTab === 'nhap' && !S.nkId && !editing()) viewNkList(); });
+}
+function viewNkList() {
+  var rows = (S.nkList || []).map(function (p) {
+    return '<button type="button" class="card lotcard" onclick="nkOpen(\'' + esc(p.phieuId) + '\')">' +
+      '<div class="row between"><div class="bold">' + esc(p.ma) + '</div>' + (p.status === 'done' ? '<span class="chip ok">Đã xong</span>' : '<span class="chip warn">Đang nhập</span>') + '</div>' +
+      '<div class="small">' + esc(p.xuong || 'Chưa ghi xưởng') + (p.ghiChu ? ' · ' + esc(p.ghiChu) : '') + '</div>' +
+      '<div class="muted small">' + esc(p.createdAt) + ' · ' + esc(p.user) + ' · ' + p.photoCount + ' ảnh phiếu · ' + p.bagCount + ' bao · ' + fmtN(p.sl) + ' cái</div></button>';
+  }).join('') || '<div class="card muted">Chưa có phiếu nhập nào.</div>';
+  var add = can('hhNhap') ? '<div class="card stack"><div class="bold">Hàng về kho: tạo phiếu nhập mới</div>' +
+    '<div class="grid2"><label class="f">Xưởng / nguồn hàng<input class="in" id="nkx" maxlength="100" placeholder="Ví dụ: X03"></label>' +
+    '<label class="f">Ghi chú<input class="in" id="nkg" maxlength="300" placeholder="Không bắt buộc"></label></div>' +
+    '<div><button type="button" class="btn pri" onclick="nkCreate()">＋ Tạo phiếu nhập</button></div></div>' : '';
+  hhShell(add + rows);
+}
+function nkCreate() {
+  call('nkCreate', { xuong: $('nkx').value, ghiChu: $('nkg').value }, { text: 'Đang tạo phiếu…' }).then(function (d) {
+    S.nkList = null; S.nkId = d.phieu.phieuId; S.nkCur = d; viewNk();
+    toast('Đã tạo phiếu ' + d.phieu.ma + '. Chụp ảnh phiếu xuất kho rồi bắt đầu bóc bao nhé.');
+  });
+}
+function nkOpen(id) {
+  S.nkId = id;
+  if (S.nkCur && S.nkCur.phieu.phieuId === id) viewNk(); else hhShell('<div class="card muted">Đang tải phiếu…</div>');
+  call('nkGet', { phieuId: id }, { quiet: true }).then(function (d) { S.nkCur = d; if (S.view === 'hh' && S.nkId === id && !editing()) viewNk(true); });
+}
+function nkPhotoHtml(ids, delFn) {
+  var th = nkThumbs();
+  return ids.map(function (id, n) {
+    var img = th[id] ? '<img src="' + th[id] + '" alt="Ảnh ' + (n + 1) + '">' : '<div class="nothumb">Ảnh ' + (n + 1) + '</div>';
+    return '<div style="position:relative"><a href="https://drive.google.com/file/d/' + esc(id) + '/view" target="_blank" rel="noopener">' + img + '</a>' +
+      (delFn ? '<button type="button" class="delph" aria-label="Xoá ảnh" onclick="' + delFn + '(\'' + esc(id) + '\')">✕</button>' : '') + '</div>';
+  }).join('');
+}
+function viewNk(keep) {
+  var d = S.nkCur, p = d.phieu, open = p.status !== 'done', edit = open && can('hhNhap');
+  var done = d.bags.filter(function (b) { return b.status === 'done'; });
+  var mine = d.bags.filter(function (b) { return b.status === 'draft'; })[0];
+  var tot = {}, order = [], all = 0;
+  done.forEach(function (b) { b.lines.forEach(function (l) { if (!(l.sku in tot)) { tot[l.sku] = 0; order.push(l.sku); } tot[l.sku] += Number(l.sl) || 0; all += Number(l.sl) || 0; }); });
+  var up = (S.nkUp || []).filter(function (x) { return x.phieuId === p.phieuId; });
+  var bags = done.map(function (b) {
+    var n = 0; b.lines.forEach(function (l) { n += Number(l.sl) || 0; });
+    var vid = b.videoId === 'pending' ? '<span class="chip warn">Video đang tải</span>' : (b.videoId ? '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(b.videoId) + '/view" target="_blank" rel="noopener">Xem video</a>' : '');
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div class="bold">Bao ' + String(b.baoNo).padStart(2, '0') + ' · ' + b.lines.length + ' mã · ' + fmtN(n) + ' cái</div>' +
+      '<div class="row" style="gap:6px">' + vid + (can('hhKiemKe') ? '<button type="button" class="btn sm danger" onclick="nkDelBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ')">Xoá bao</button>' : '') + '</div></div>' +
+      '<div class="small">' + b.lines.map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + '</div>' +
+      '<div class="muted small">' + esc(b.user) + ' · ' + esc(b.createdAt) + (b.photoIds.length ? ' · ' + b.photoIds.length + ' ảnh' : '') + '</div></div>';
+  }).join('') || '<div class="muted small">Chưa chốt bao nào.</div>';
+  var body = '<div class="row"><button type="button" class="iconbtn" aria-label="Về danh sách phiếu" onclick="S.nkId=null;nkLoadList()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Phiếu nhập kho</div><div class="title" style="font-size:20px">' + esc(p.ma) + '</div></div>' +
+    (open ? '<span class="chip warn">Đang nhập</span>' : '<span class="chip ok">Đã xong</span>') + '</div>' +
+    '<div class="muted small">Tạo bởi ' + esc(p.user) + ' lúc ' + esc(p.createdAt) + (p.folderUrl && can('hhView') ? ' · <a href="' + esc(p.folderUrl) + '" target="_blank" rel="noopener">Thư mục Drive</a>' : '') + '</div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Ảnh phiếu xuất kho</h3>' +
+    '<div class="thumbs">' + nkPhotoHtml(p.photoIds, edit ? 'nkDelPhoto' : '') +
+    up.map(function (x) { return '<div><img src="' + x.thumb + '" alt="Đang tải"><div class="small muted center">đang tải…</div></div>'; }).join('') +
+    (edit ? '<button type="button" class="add" aria-label="Chụp ảnh phiếu" onclick="$(\'nkpf\').click()">' + ICON.cam + '</button>' : '') + '</div>' +
+    (edit ? '<div class="grid2"><label class="f">Xưởng / nguồn hàng<input class="in" maxlength="100" value="' + esc(p.xuong) + '" onchange="nkSaveInfo(\'xuong\',this.value)"></label>' +
+      '<label class="f">Ghi chú<input class="in" maxlength="300" value="' + esc(p.ghiChu) + '" onchange="nkSaveInfo(\'ghiChu\',this.value)"></label></div>'
+      : '<div class="small">Xưởng: <b>' + esc(p.xuong || '—') + '</b>' + (p.ghiChu ? ' · ' + esc(p.ghiChu) : '') + '</div>') + '</div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Bao hàng (' + done.length + ' bao · ' + fmtN(all) + ' cái)</h3>' +
+    (edit ? (mine ? '<button type="button" class="btn pri block" onclick="nkNewBag()">Làm tiếp bao số ' + mine.baoNo + ' (đang dở)</button>'
+      : '<button type="button" class="btn pri block" onclick="nkNewBag()">＋ Bóc bao mới</button>') : '') + bags + '</div>' +
+    (order.length ? '<div class="card stack"><h3 style="margin:0">Tổng nhập theo mã</h3><div class="tablebox"><table class="t" style="min-width:0"><thead><tr><th>Mã SKU</th><th class="num">Số lượng</th></tr></thead><tbody>' +
+      order.map(function (s) { return '<tr><td>' + esc(s) + '</td><td class="num bold">' + fmtN(tot[s]) + '</td></tr>'; }).join('') + '</tbody></table></div></div>' : '') +
+    (can('hhNhap') ? '<div class="row wrapflex">' + (open ? '<button type="button" class="btn" onclick="nkStatus(\'done\')">✓ Hoàn tất phiếu</button>' : '<button type="button" class="btn" onclick="nkStatus(\'open\')">Mở lại phiếu</button>') + '</div>' : '') +
+    '<input type="file" id="nkpf" accept="image/*" capture="environment" multiple hidden onchange="nkGotPhotos(this)">';
+  hhShell(body, keep);
+}
+function nkSaveInfo(k, v) {
+  var o = { phieuId: S.nkId }; o[k] = v;
+  call('nkUpdate', o, { quiet: true }).then(function (d) { S.nkCur = d; S.nkList = null; toast('Đã lưu.'); });
+}
+function nkStatus(st) {
+  ask(st === 'done' ? 'Hoàn tất phiếu nhập này? Sau đó không thêm bao được (mở lại khi cần).' : 'Mở lại phiếu để bóc thêm bao?', { ok: st === 'done' ? 'Hoàn tất' : 'Mở lại' }).then(function (ok) {
+    if (!ok) return;
+    call('nkUpdate', { phieuId: S.nkId, status: st }, { text: 'Đang lưu…' }).then(function (d) { S.nkCur = d; S.nkList = null; viewNk(true); });
+  });
+}
+function nkGotPhotos(input) {
+  var files = Array.prototype.slice.call(input.files || []); input.value = '';
+  var pid = S.nkId;
+  S.nkUp = S.nkUp || [];
+  files.forEach(function (f) {
+    compressImage(f, 1600, 0.8).then(function (dataUrl) {
+      var x = { phieuId: pid, thumb: dataUrl }; S.nkUp.push(x);
+      if (S.nkId === pid && S.view === 'hh') viewNk(true);
+      return call('uploadPhoto', { bagId: pid, dataUrl: dataUrl }, { quiet: true }).then(function (r) {
+        nkThumbs()[r.fileId] = dataUrl;
+        if (S.nkCur && S.nkCur.phieu.phieuId === pid) S.nkCur.phieu.photoIds = r.photoIds;
+      }).catch(function () { toast('Một ảnh phiếu chưa tải lên được, chụp lại nhé.', true); })
+        .then(function () { S.nkUp.splice(S.nkUp.indexOf(x), 1); S.nkList = null; if (S.nkId === pid && S.view === 'hh') viewNk(true); });
+    });
+  });
+}
+function nkDelPhoto(id) {
+  ask('Xoá ảnh phiếu này? Ảnh sẽ vào thùng rác Drive.', { ok: 'Xoá ảnh', danger: true }).then(function (ok) {
+    if (!ok) return;
+    var keep = S.nkCur.phieu.photoIds.filter(function (x) { return x !== id; });
+    call('nkUpdate', { phieuId: S.nkId, photoIds: keep }, { text: 'Đang xoá…' }).then(function (d) { S.nkCur = d; viewNk(true); });
+  });
+}
+function nkDelBag(bagId, no) {
+  ask('Xoá bao số ' + no + '? Tồn kho sẽ bị trừ lại đúng số đã nhập của bao này, video và ảnh vào thùng rác. Ghi lý do:', { input: true, ok: 'Xoá bao' }).then(function (ly) {
+    if (ly === null) return;
+    call('nkDeleteBag', { bagId: bagId, lyDo: ly }, { text: 'Đang xoá bao…' }).then(function (r) {
+      S.nkCur = r.detail; if (S.hh) S.hh.items = r.items; S.nkList = null; toast('Đã xoá bao ' + no + ', tồn kho đã trừ lại.'); viewNk(true);
+    });
+  });
+}
+
+/* ----- Bao nhập: video bóc hàng → mã + số lượng → chốt ----- */
+function nkNewBag() {
+  if (!S.hh || !S.hh.items.length) return toast('Chưa có mã hàng nào được chọn để quản lý (thẻ Chọn mã quản lý).', true);
+  var pid = S.nkId, ma = S.nkCur.phieu.ma;
+  var bag = { kind: 'nk', phieuId: pid, ma: ma, bagId: null, baoNo: null, job: null, videoId: null, photos: [], lines: { order: [], sl: {} } };
+  bag.ready = call('nkStartBag', { phieuId: pid }, { quiet: true, silent: true }).then(function (r) {
+    bag.bagId = r.bagId; bag.baoNo = r.baoNo;
+    if (bag.job) { bag.job.bagId = r.bagId; bag.job.baoNo = r.baoNo; }
+    var saved = null; try { saved = JSON.parse(load('godfbs_nb_' + r.bagId) || 'null'); } catch (e) { saved = null; }
+    if (saved && saved.order && !bag.lines.order.length) bag.lines = saved;
+    else if (r.lines && r.lines.length && !bag.lines.order.length) r.lines.forEach(function (l) { bag.lines.order.push(l.sku); bag.lines.sl[l.sku] = l.sl; });
+    vqAttach(bag);
+    if (S.bag === bag) { [].forEach.call(document.querySelectorAll('.baono'), function (el) { el.textContent = r.baoNo; }); nbRedraw(); }
+    return bag;
+  });
+  bag.ready.catch(function (e) {
+    if (S.bag !== bag) return;
+    if (bag.job) { vqDrop(bag.job); bag.job = null; }
+    S.bag = null; S.view = 'hh';
+    toast('Chưa tạo được bao: ' + ((e && e.message) || 'mất kết nối') + '.', true); viewNk();
+  });
+  S.bag = bag; S.view = 'nbag'; viewNBag();
+}
+function nbSum(b) { var n = 0; b.lines.order.forEach(function (s) { n += Number(b.lines.sl[s]) || 0; }); return n; }
+function nbBtn(b) { return '✓ Chốt bao số <span class="baono">' + (b.baoNo || '…') + '</span> (' + b.lines.order.length + ' mã, ' + fmtN(nbSum(b)) + ' cái)'; }
+function viewNBag() {
+  var b = S.bag;
+  render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Huỷ bao" onclick="nbCancel()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Nhập kho · ' + esc(b.ma) + '</div><div class="title">Bao số <span class="baono">' + (b.baoNo || '…') + '</span></div></div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Video bóc hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Mã hàng &amp; số lượng trong bao</h3>' +
+    '<div class="row" style="gap:8px"><input class="in grow" id="nbcode" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã SKU (mỗi lần quét +1)" ' +
+    'oninput="nbSuggest(this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAdd(this.value);this.value=\'\';nbSuggest(\'\')}">' +
+    (CAN_SCAN ? '<button type="button" class="btn sm" onclick="openScanner(nbAdd)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+    '<div id="nbsug" class="stack" style="gap:6px"></div><div id="nblines" class="stack" style="gap:8px">' + nbLines(b) + '</div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Ảnh bao hàng <span class="muted small" style="font-weight:600">không bắt buộc</span></h3><div class="thumbs" id="nbph">' + nbPhotos(b) + '</div></div>' +
+    '</div>' +
+    '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="pfile" accept="image/*" capture="environment" hidden onchange="gotPhotos(this)">' +
+    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="nbgo" onclick="nbSave()">' + nbBtn(b) + '</button></div></div>' +
+    nav('hh'));
+}
+function nbPhotos(b) {
+  return b.photos.map(function (p, n) {
+    return '<div>' + (p.thumb ? '<img src="' + p.thumb + '" alt="Ảnh bao">' : '<div class="nothumb">Ảnh ' + (n + 1) + '</div>') + (p.id ? '' : '<div class="small muted center">đang tải…</div>') + '</div>';
+  }).join('') + '<button type="button" class="add" aria-label="Chụp ảnh" onclick="$(\'pfile\').click()">' + ICON.cam + '</button>';
+}
+function nbLines(b) {
+  var by = hhBySku();
+  if (!b.lines.order.length) return '<div class="muted small">Chưa có mã nào. Quét mã trên từng món, hoặc gõ vài chữ của mã rồi chọn.</div>';
+  return b.lines.order.slice().reverse().map(function (s) {
+    var i = by[s] || {};
+    return '<div class="card row between" style="padding:10px 12px;gap:10px" data-sku="' + esc(s) + '"><div class="grow" style="min-width:0">' +
+      '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div></div>' +
+      '<div class="row" style="gap:6px;flex:none"><button type="button" class="btn sm" onclick="nbStep(this,-1)">−</button>' +
+      '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(b.lines.sl[s]) + '" onchange="nbSet(this)">' +
+      '<button type="button" class="btn sm" onclick="nbStep(this,1)">+</button>' +
+      '<button type="button" class="btn sm" title="Bỏ mã này" onclick="nbDel(this)">✕</button></div></div>';
+  }).join('');
+}
+function nbRedraw() {
+  var b = S.bag; if (!b || b.kind !== 'nk' || S.view !== 'nbag') return;
+  if ($('nbvid')) $('nbvid').innerHTML = vidBox(b);
+  if ($('nbph')) $('nbph').innerHTML = nbPhotos(b);
+  if ($('nblines')) $('nblines').innerHTML = nbLines(b);
+  if ($('nbgo')) $('nbgo').innerHTML = nbBtn(b);
+  if (b.bagId) store('godfbs_nb_' + b.bagId, JSON.stringify(b.lines));
+}
+function bagRedraw() { if (S.view === 'nbag') nbRedraw(); else if (S.view === 'bag') viewBag(); }
+function nbStep(el, n) { var b = S.bag, s = hhSkuOf(el); b.lines.sl[s] = Math.max(0, (Number(b.lines.sl[s]) || 0) + n); nbRedraw(); }
+function nbSet(el) { var b = S.bag, s = hhSkuOf(el), v = Math.round(Number(el.value)); b.lines.sl[s] = isFinite(v) && v >= 0 ? v : 0; nbRedraw(); }
+function nbDel(el) { var b = S.bag, s = hhSkuOf(el); b.lines.order = b.lines.order.filter(function (x) { return x !== s; }); delete b.lines.sl[s]; nbRedraw(); }
+function nbSuggest(v) {
+  var el = $('nbsug'); if (!el) return;
+  var q = normCode(v);
+  if (q.length < 2) { el.innerHTML = ''; return; }
+  var hits = S.hh.items.filter(function (i) { return i.sku.indexOf(q) >= 0; }).slice(0, 8);
+  el.innerHTML = hits.map(function (i) {
+    return '<button type="button" class="pick" style="padding:8px 12px" onclick="nbAdd(\'' + esc(i.sku) + '\');$(\'nbcode\').value=\'\';nbSuggest(\'\')"><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai) + ' · tồn ' + fmtN(i.tonKho) + '</span></button>';
+  }).join('') || '<div class="small muted">Không có mã nào khớp trong danh sách quản lý.</div>';
+}
+function nbAdd(code) {
+  var b = S.bag; if (!b || b.kind !== 'nk') return;
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code), hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([60, 60, 60]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return;
+  }
+  if (b.lines.order.indexOf(it.sku) < 0) { b.lines.order.push(it.sku); b.lines.sl[it.sku] = 0; }
+  else { b.lines.order = b.lines.order.filter(function (x) { return x !== it.sku; }); b.lines.order.push(it.sku); }
+  b.lines.sl[it.sku] = (Number(b.lines.sl[it.sku]) || 0) + 1;
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  if (hint) hint.innerHTML = 'Đã quét <b>' + esc(it.sku) + '</b> → ' + b.lines.sl[it.sku] + ' cái. Quét món tiếp theo…';
+  nbRedraw();
+}
+function nbBack() { S.bag = null; S.view = 'hh'; S.hhTab = 'nhap'; nkOpen(S.nkId); }
+function nbCancel() {
+  var b = S.bag;
+  ask('Huỷ bao số ' + (b.baoNo || '') + '? Video và các mã đã chọn của bao này sẽ mất, tồn kho không đổi.', { ok: 'Huỷ bao', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (REC) closeRecorder(true);
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId && j.bagId === b.bagId; }).forEach(vqDrop);
+    nbBack();
+    b.ready.then(function () { store('godfbs_nb_' + b.bagId, null); return call('nkCancelBag', { bagId: b.bagId }, { quiet: true, silent: true }); })
+      .then(function () { if (S.view === 'hh' && S.nkId === b.phieuId) nkOpen(b.phieuId); }).catch(function () {});
+  });
+}
+function nbSave() {
+  var b = S.bag;
+  if (!b.bagId) return toast('Đang lấy số bao, chờ 1–2 giây rồi bấm lại nhé.', true);
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video bóc hàng.', true);
+  var lines = b.lines.order.map(function (s) { return { sku: s, sl: Number(b.lines.sl[s]) || 0 }; }).filter(function (l) { return l.sl > 0; });
+  if (!lines.length) return toast('Bao chưa có mã hàng nào.', true);
+  if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
+  ask('Chốt bao số ' + b.baoNo + ', tồn kho cộng thêm:\n\n' + lines.map(function (l) { return l.sku + ' × ' + l.sl; }).join('\n'), { ok: 'Chốt bao' }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    var vid = b.videoId || '';
+    call('nkSaveBag', { bagId: b.bagId, lines: lines, videoId: vid, videoPending: !vid && !!(b.job && b.job.keep), photoIds: b.photos.map(function (p) { return p.id; }) },
+      { text: 'Đang chốt bao…' }).then(function (r) {
+      VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+        if (vid && j.fileId === vid) return vqDrop(j);
+        if (!j.keep) return vqDrop(j);
+        j.saved = true; vqSave(j); vqKick();
+      });
+      store('godfbs_nb_' + b.bagId, null);
+      if (S.hh) S.hh.items = r.items;
+      S.nkCur = r.detail; S.nkList = null; S.bag = null; S.view = 'hh'; S.hhTab = 'nhap';
+      toast('Đã chốt bao số ' + r.baoNo + ', tồn kho đã cộng.' + (vid || !(b.job && b.job.keep) ? '' : ' Video đang tự tải tiếp, đừng tắt app nhé.'));
+      viewNk();
     });
   });
 }

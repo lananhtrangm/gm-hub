@@ -571,7 +571,7 @@ function navBar(active) {
     '<div class="nscroll">' +
     '<div class="ngrp">Công việc</div>' +
     navFolder('fbs', ICON.box, 'Đóng hàng FBS', fbs) +
-    (hhAny() ? navFolder('hh', ICON.shelf, 'Hàng hoá · Kho HN', hhNavBody(), '', v === 'hh') : '') +
+    (hhAny() ? navFolder('hh', ICON.shelf, 'Kho GOD Tầng 2', hhNavBody(), '', v === 'hh') : '') +
     (isAdmin() ? '<div class="ngrp">Quản lý</div>' + navFolder('quanly', ICON.gear, 'Cài đặt', navItem(active === 'users', "navGo('users')", ICON.user, 'Tài khoản') +
       navItem(active === 'perms', "navGo('perms')", ICON.gear, 'Phân quyền chức năng')) : '') +
     '</div>' +
@@ -582,7 +582,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'hh' || S.view === 'nbag' || S.view === 'dbag' ? 'Hàng hoá · Kho HN' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'hh' || S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag' ? 'Kho GOD Tầng 2' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -2088,10 +2088,10 @@ function vqDone(job, fileId) {
   var b = S.bag;
   if (b && b.job === job) {   // bao đang mở trên màn hình: gắn video ngay
     b.videoId = fileId; b.job = null;
-    if (S.view === 'nbag' || S.view === 'dbag') bagRedraw(); else if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
+    if (S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag') bagRedraw(); else if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
   }
   // bao chưa chốt: giữ bản ghi (có mã file) tới khi chốt bao, lỡ tắt app thì mở lại bao vẫn gắn được video
-  toast('Video ' + (/^D/.test(job.bagId || '') ? 'đơn ' : 'bao ') + (job.baoNo || '') + ' đã lưu lên Drive.');
+  toast('Video ' + (/^D/.test(job.bagId || '') ? 'đơn ' : /^H/.test(job.bagId || '') ? 'hoàn ' : 'bao ') + (job.baoNo || '') + ' đã lưu lên Drive.');
 }
 
 /* Khi mở bao (số bao từ máy chủ): gắn video quay dở / đang tải của chính bao này trên máy */
@@ -2153,7 +2153,7 @@ function vqBar() {
   var j = act.sort(function (a, b) { return a.createdAt - b.createdAt; })[0];
   var bad = act.some(function (x) { return x.err; });
   el.className = 'vqbar' + (bad ? ' bad' : '');
-  el.textContent = (bad ? '⚠️ ' : '⏳ ') + 'Đang tải ' + act.length + ' video · ' + (/^D/.test(j.bagId || '') ? 'Đơn ' : 'Bao ') + (j.baoNo || '…') + ' ' + pct(j.sent, j.size) + '%' +
+  el.textContent = (bad ? '⚠️ ' : '⏳ ') + 'Đang tải ' + act.length + ' video · ' + (/^D/.test(j.bagId || '') ? 'Đơn ' : /^H/.test(j.bagId || '') ? 'Hoàn ' : 'Bao ') + (j.baoNo || '…') + ' ' + pct(j.sent, j.size) + '%' +
     (bad ? ' · ' + (act.filter(function (x) { return x.err; })[0].err) + ', sẽ tự thử lại' : '');
   el.hidden = false;
 }
@@ -2321,25 +2321,39 @@ function resetPw(u) {
 /* Danh mục đọc từ file sản xuất (sheet DATA SP), chị chọn SKU tổng cần quản lý. Tồn kho do app tự giữ:
    Nhập kho = quét hàng về (cộng), Kiểm kê = đếm thực tế (đặt lại tồn). Mỗi lần đổi đều có lịch sử. */
 var HH_TABS = [
-  { k: 'ton', t: 'Tồn kho', p: 'hhView' }, { k: 'nhap', t: 'Nhập kho', p: 'hhNhap' }, { k: 'kiem', t: 'Kiểm kê', p: 'hhKiemKe' },
-  { k: 'don', t: 'Đơn hàng', p: ['hhDon', 'hhDonTai'] }, { k: 'log', t: 'Lịch sử', p: 'hhView' }, { k: 'chon', t: 'Chọn mã quản lý', p: 'hhSetup' }
+  { k: 'ton', t: 'Tồn kho', p: 'hhView' }, { k: 'nhap', t: 'Nhập Kho', p: 'hhNhap' }, { k: 'kiem', t: 'Kiểm Kê', p: 'hhKiemKe' },
+  { k: 'don', t: 'List Đơn Hàng', p: ['hhDon', 'hhDonTai'] }, { k: 'dong', t: 'Đóng hàng', p: 'hhDon' }, { k: 'hoan', t: 'Hàng Hoàn', p: 'hhHoan' },
+  { k: 'chon', t: 'Chọn mã quản lý', p: 'hhSetup' }
 ];
+/* Thẻ đang sáng: Lịch sử nằm trong Tồn kho; màn quét đóng hàng / nhận hoàn / bao nhập sáng thẻ của nó */
+function hhOnTab(k) {
+  if (S.view === 'dbag') return k === 'dong';
+  if (S.view === 'hbag') return k === 'hoan';
+  if (S.view === 'nbag') return k === 'nhap';
+  return S.view === 'hh' && (S.hhTab === k || (k === 'ton' && S.hhTab === 'log'));
+}
 function hhCanTab(x) { return [].concat(x.p).some(can); }
 function hhAny() { return HH_TABS.some(hhCanTab); }
 function hhTabsOk() { return HH_TABS.filter(hhCanTab); }
-function navHh(tab) { navOpen(false); if (tab === 'nhap') S.nkId = null; if (tab === 'don') S.dhLanId = null; go('hh', tab); }
+function navHh(tab) { navOpen(false); hhGoTab(tab); }
 function hhNavBody() {
   return hhTabsOk().map(function (x) {
-    return navItem(S.view === 'hh' && S.hhTab === x.k, "navHh('" + x.k + "')", '', x.t, '', 'sub');
+    return navItem(hhOnTab(x.k), "navHh('" + x.k + "')", '', x.t, '', 'sub');
   }).join('');
 }
 function loadHh(tab) {
   var ok = hhTabsOk();
   if (!ok.length) { toast('Tài khoản của bạn chưa được mở chức năng Hàng hoá.', true); return go('lots'); }
-  if (!tab || !ok.some(function (x) { return x.k === tab; })) tab = (ok.some(function (x) { return x.k === S.hhTab; }) ? S.hhTab : ok[0].k);
+  var okTab = function (k) { return ok.some(function (x) { return x.k === k; }) || (k === 'log' && can('hhView')); };
+  if (!tab || !okTab(tab)) tab = (okTab(S.hhTab) ? S.hhTab : ok[0].k);
+  if (tab === 'dong') return dhPack();
   S.hhTab = tab;
   if (tab === 'chon') return hhLoadConfig();
   if (tab === 'log') return hhLoadLog();
+  if (tab === 'hoan') {
+    if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; if (S.view === 'hh' && S.hhTab === 'hoan' && !editing()) viewHoList(); }).catch(function () {});
+    return hoLoadList();
+  }
   if (tab === 'nhap') {
     if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
     return S.nkId ? nkOpen(S.nkId) : nkLoadList();
@@ -2356,9 +2370,9 @@ function loadHh(tab) {
 function hhBySku() { var m = {}; ((S.hh && S.hh.items) || []).forEach(function (i) { m[i.sku] = i; }); return m; }
 function hhHead() {
   var tabs = hhTabsOk().map(function (x) {
-    return '<button type="button" class="tab ' + (S.hhTab === x.k ? 'on' : '') + '" onclick="hhGoTab(\'' + x.k + '\')">' + x.t + '</button>';
+    return '<button type="button" class="tab ' + (hhOnTab(x.k) ? 'on' : '') + '" onclick="hhGoTab(\'' + x.k + '\')">' + x.t + '</button>';
   }).join('');
-  return '<div class="title">Hàng hoá · Kho HN</div><div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>';
+  return '<div class="title">Kho GOD Tầng 2</div><div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>';
 }
 function hhShell(body, keep) {
   render('<div class="wrap stack">' + hhHead() + body + '</div>' + nav('hh'), keep);
@@ -2374,21 +2388,23 @@ function viewHh(keep) {
   if (S.hhTab === 'nhap') return S.nkId && S.nkCur ? viewNk(keep) : viewNkList();
   if (S.hhTab === 'don') return S.dhLanId && S.dhCur ? viewDhLan(keep) : viewDhList();
   if (S.hhTab === 'kiem') return viewHhPhieu(keep);
+  if (S.hhTab === 'hoan') return viewHoList(keep);
   return viewHhTon(keep);
 }
 
 /* ---------- Tồn kho ---------- */
 function fmtN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
 function viewHhTon(keep) {
-  var it = S.hh.items, tk = 0, tx = 0, sx = 0;
-  it.forEach(function (i) { tk += i.tonKho; tx += i.tonXuong; sx += i.dangSx; });
+  var it = S.hh.items, tk = 0, tx = 0, sx = 0, tl = 0;
+  it.forEach(function (i) { tk += i.tonKho; tx += i.tonXuong; sx += i.dangSx; tl += i.tonLoi || 0; });
   var body = '<div class="card stack">' +
     '<div class="row wrapflex" style="gap:8px"><span class="chip soft">' + it.length + ' mã lẻ</span><span class="chip ok">Tồn kho ' + fmtN(tk) + '</span>' +
-    '<span class="chip warn">Tồn xưởng ' + fmtN(tx) + '</span><span class="chip soft">Đang SX ' + fmtN(sx) + '</span></div>' +
+    '<span class="chip warn">Tồn xưởng ' + fmtN(tx) + '</span><span class="chip soft">Đang SX ' + fmtN(sx) + '</span>' + (tl ? '<span class="chip bad">Hàng lỗi ' + fmtN(tl) + '</span>' : '') + '</div>' +
     '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="hhFilter()" value="' + esc(S.hhQ || '') + '">' +
-    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật tồn xưởng</button></div>' +
+    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật tồn xưởng</button>' +
+    '<button type="button" class="btn sm" onclick="hhGoTab(\'log\')">🕘 Xem lịch sử</button></div>' +
     '<div class="muted small">Tồn kho: app tự cộng trừ (nhập kho, kiểm kê). Tồn xưởng và Đang SX lấy từ file sản xuất' + (S.hh.syncAt ? ', cập nhật lúc ' + esc(S.hh.syncAt) : '') + '.</div>' +
-    '<div class="tablebox"><table class="t" style="min-width:560px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Tồn kho</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th></tr></thead>' +
+    '<div class="tablebox"><table class="t" style="min-width:620px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Tồn kho</th><th class="num">Hàng lỗi</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th></tr></thead>' +
     '<tbody id="hhtb">' + hhTonRows() + '</tbody></table></div></div>';
   hhShell(body, keep);
 }
@@ -2399,14 +2415,15 @@ function hhTonRows() {
     if (!g[i.skuTong]) { g[i.skuTong] = []; order.push(i.skuTong); }
     g[i.skuTong].push(i);
   });
-  if (!order.length) return '<tr><td colspan="5" class="muted">Không có mã nào khớp.</td></tr>';
+  if (!order.length) return '<tr><td colspan="6" class="muted">Không có mã nào khớp.</td></tr>';
   return order.map(function (k) {
-    var l = g[k], a = 0, b = 0, c = 0;
-    l.forEach(function (i) { a += i.tonKho; b += i.tonXuong; c += i.dangSx; });
+    var l = g[k], a = 0, b = 0, c = 0, e = 0;
+    l.forEach(function (i) { a += i.tonKho; b += i.tonXuong; c += i.dangSx; e += i.tonLoi || 0; });
     return '<tr style="background:var(--soft)"><td colspan="2"><b>' + esc(k) + '</b> <span class="muted small">' + esc(l[0].tenTem || l[0].ten) + '</span></td>' +
-      '<td class="num bold">' + fmtN(a) + '</td><td class="num bold">' + fmtN(b) + '</td><td class="num bold">' + fmtN(c) + '</td></tr>' +
+      '<td class="num bold">' + fmtN(a) + '</td><td class="num bold"' + (e ? ' style="color:var(--bad)"' : '') + '>' + (e ? fmtN(e) : '') + '</td><td class="num bold">' + fmtN(b) + '</td><td class="num bold">' + fmtN(c) + '</td></tr>' +
       l.map(function (i) {
         return '<tr><td>' + esc(i.sku) + '</td><td>' + esc(i.phanLoai) + '</td><td class="num bold"' + (i.tonKho < 0 ? ' style="color:var(--bad)"' : '') + '>' + fmtN(i.tonKho) + '</td>' +
+          '<td class="num"' + (i.tonLoi ? ' style="color:var(--bad)"' : '') + '>' + (i.tonLoi ? fmtN(i.tonLoi) : '') + '</td>' +
           '<td class="num">' + fmtN(i.tonXuong) + '</td><td class="num">' + fmtN(i.dangSx) + '</td></tr>';
       }).join('');
   }).join('');
@@ -2548,7 +2565,8 @@ function viewHhLog() {
       '<td class="num bold" style="color:' + (l.sl < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (l.sl > 0 ? '+' : '') + fmtN(l.sl) + '</td>' +
       '<td class="num">' + fmtN(l.tonTruoc) + ' → <b>' + fmtN(l.tonSau) + '</b></td><td>' + esc(l.ghiChu) + '<div class="muted small">' + esc(l.phieu) + '</div></td></tr>';
   }).join('') || '<tr><td colspan="7" class="muted">Chưa có lịch sử.</td></tr>';
-  hhShell('<div class="card stack"><div class="row" style="gap:8px"><input class="in grow" id="hhlq" placeholder="Lọc theo mã SKU" value="' + esc(S.hhLogQ || '') + '" ' +
+  hhShell('<div class="card stack"><div class="row between"><button type="button" class="btn sm" onclick="hhGoTab(\'ton\')">← Tồn kho</button><div class="bold">Lịch sử tồn kho</div></div>' +
+    '<div class="row" style="gap:8px"><input class="in grow" id="hhlq" placeholder="Lọc theo mã SKU" value="' + esc(S.hhLogQ || '') + '" ' +
     'onkeydown="if(event.key===\'Enter\'){S.hhLogQ=this.value;hhLoadLog()}"><button type="button" class="btn sm" onclick="S.hhLogQ=$(\'hhlq\').value;hhLoadLog()">Lọc</button></div>' +
     '<div class="muted small">500 lần thay đổi gần nhất.</div>' +
     '<div class="tablebox"><table class="t" style="min-width:760px"><thead><tr><th>Thời gian</th><th>Người làm</th><th>Loại</th><th>Mã SKU</th><th class="num">Số lượng</th><th class="num">Tồn</th><th>Ghi chú / Phiếu</th></tr></thead><tbody>' +
@@ -2629,7 +2647,16 @@ function hhSaveSel() {
 /* ---------- Nhập kho theo phiếu + bao ----------
    Phiếu = 1 lần hàng về (chụp ảnh phiếu xuất kho của xưởng). Mỗi bao: quay video bóc hàng → chọn mã + số lượng → chốt bao (cộng tồn ngay).
    Quay / tải video dùng chung cách đóng bao FBS (vừa quay vừa tải, tắt app không mất). */
-function hhGoTab(k) { if (k === 'nhap') S.nkId = null; if (k === 'don') S.dhLanId = null; go('hh', k); }
+function hhGoTab(k) {
+  if (k === 'nhap') S.nkId = null; if (k === 'don') S.dhLanId = null;
+  if (k === 'dong') { if (REC) return toast('Đang quay video, dừng quay trước nhé.', true); return dhPack(); }
+  if (k === 'hoan' && S.view === 'hbag' && REC) return toast('Đang quay video, dừng quay trước nhé.', true);
+  if (S.bag && S.bag.kind === 'hoan') {   // giữ kiện hoàn đang nhận dở
+    if (k !== 'hoan') return toast('Đang nhận dở kiện hoàn ' + S.bag.baoNo + ': bấm Chốt hoàn hoặc Bỏ kiện này trước.', true);
+    S.view = 'hh'; return loadHh(k);
+  }
+  go('hh', k);
+}
 function nkThumbs() { S.nkThumb = S.nkThumb || {}; return S.nkThumb; }
 function nkLoadList() {
   if (S.nkList) viewNkList(); else hhShell('<div class="card muted">Đang tải phiếu nhập…</div>');
@@ -2818,7 +2845,7 @@ function nbRedraw() {
   if ($('nbgo')) $('nbgo').innerHTML = nbBtn(b);
   if (b.bagId) store('godfbs_nb_' + b.bagId, JSON.stringify(b.lines));
 }
-function bagRedraw() { if (S.view === 'nbag') nbRedraw(); else if (S.view === 'dbag') dbRedraw(); else if (S.view === 'bag') viewBag(); }
+function bagRedraw() { if (S.view === 'nbag') nbRedraw(); else if (S.view === 'dbag') dbRedraw(); else if (S.view === 'hbag') hbRedraw(); else if (S.view === 'bag') viewBag(); }
 function nbStep(el, n) { var b = S.bag, s = hhSkuOf(el); b.lines.sl[s] = Math.max(0, (Number(b.lines.sl[s]) || 0) + n); nbRedraw(); }
 function nbSet(el) { var b = S.bag, s = hhSkuOf(el), v = Math.round(Number(el.value)); b.lines.sl[s] = isFinite(v) && v >= 0 ? v : 0; nbRedraw(); }
 function nbDel(el) { var b = S.bag, s = hhSkuOf(el); b.lines.order = b.lines.order.filter(function (x) { return x !== s; }); delete b.lines.sl[s]; nbRedraw(); }
@@ -3077,6 +3104,7 @@ function dhSetCach(c) {
   store('godfbs_dh_cach', c); viewDBag();
 }
 function dhPack() {
+  if (S.bag && S.bag.kind === 'hoan') return toast('Đang nhận dở kiện hoàn ' + S.bag.baoNo + ': bấm Chốt hoàn hoặc Bỏ kiện này trước.', true);
   if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
   if (S.bag && S.bag.kind === 'don') { S.view = 'dbag'; return viewDBag(); }
   S.bag = null; S.view = 'dbag'; viewDBag();
@@ -3181,7 +3209,7 @@ function viewDBag() {
   }
   render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
     '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="dhBackList()">' + ICON.back + '</button>' +
-    '<div class="grow"><div class="eyebrow">Hàng hoá · Đơn hàng</div><div class="title">Quét đóng đơn</div></div>' + (S.dhDem ? '<span class="chip ok">Đã đóng ' + S.dhDem + ' đơn</span>' : '') + '</div>' +
+    '<div class="grow"><div class="eyebrow">Kho GOD Tầng 2</div><div class="title">Đóng hàng</div></div>' + (S.dhDem ? '<span class="chip ok">Đã đóng ' + S.dhDem + ' đơn</span>' : '') + '</div>' +
     mode + scan + rest + '</div>' +
     '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
     '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
@@ -3230,6 +3258,235 @@ function dhDone() {
     toast('Xong đơn ' + r.don.maDon + ', đã trừ tồn.' + (r.am && r.am.length ? ' Lưu ý tồn bị âm: ' + r.am.join(', ') + '.' : '') + (vid ? '' : ' Video đang tự tải tiếp.'), !!(r.am && r.am.length));
     viewDBag();
     setTimeout(function () { var i = $('dhcode'); if (i) i.focus(); }, 50);
+  });
+}
+
+/* ===================== HÀNG HOÀN + TỒN HÀNG LỖI ===================== */
+/* Quét mã vận đơn trên kiện hoàn → app tìm đơn gốc → video bóc kiện (bắt buộc) → chọn từng món + tình trạng
+   (Nguyên vẹn: cộng lại tồn kho · Lỗi: vào tồn hàng lỗi) → ảnh (bắt buộc khi có hàng lỗi) → Chốt hoàn. */
+function hoLoadList() {
+  if (S.hoList) viewHoList(); else hhShell('<div class="card muted">Đang tải hàng hoàn…</div>');
+  call('hoanList', {}, { quiet: true }).then(function (r) { S.hoList = r; if (S.view === 'hh' && S.hhTab === 'hoan' && !editing()) viewHoList(true); }).catch(function () {});
+}
+function hoLinesTxt(lines) {
+  return (lines || []).map(function (l) {
+    return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b> ' + (l.tt === 'loi' ? '<span class="chip bad">Lỗi</span>' : '<span class="chip ok">Nguyên vẹn</span>');
+  }).join(' · ');
+}
+function viewHoList(keep) {
+  var r = S.hoList || { list: [] }, b = S.bag && S.bag.kind === 'hoan' ? S.bag : null;
+  var top = can('hhHoan') ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="hoNew()">' + ICON.scan +
+    (b ? ' Tiếp tục kiện hoàn ' + esc(b.baoNo) : ' ＋ Nhận hàng hoàn') + '</button>' : '';
+  var loi = ((S.hh && S.hh.items) || []).filter(function (i) { return i.tonLoi; });
+  var loiCard = '<div class="card stack"><div class="row between"><h3 style="margin:0">Tồn hàng lỗi</h3>' +
+    (loi.length ? '<span class="chip bad">' + fmtN(loi.reduce(function (a, i) { return a + i.tonLoi; }, 0)) + ' cái</span>' : '') + '</div>' +
+    (loi.length ? '<div class="tablebox"><table class="t" style="min-width:420px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Hàng lỗi</th><th></th></tr></thead><tbody>' +
+      loi.map(function (i) {
+        return '<tr><td class="bold">' + esc(i.sku) + '</td><td>' + esc(i.phanLoai) + '</td><td class="num bold" style="color:var(--bad)">' + fmtN(i.tonLoi) + '</td>' +
+          '<td>' + (can('hhHoan') ? '<button type="button" class="btn sm" onclick="hoLoiOut(\'' + esc(i.sku) + '\')">Xuất</button>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="muted small">Bấm "Xuất" khi trả hàng lỗi về xưởng, huỷ bỏ, hoặc sửa xong. Mỗi lần xuất ghi vào Lịch sử tồn kho.</div>'
+      : '<div class="muted small">Chưa có hàng lỗi.</div>') + '</div>';
+  var rows = (r.list || []).map(function (h) {
+    var vid = h.videoId === 'pending' ? '<span class="chip warn">Video đang tải</span>' : (h.videoId && can('evidence') ? '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(h.videoId) + '/view" target="_blank" rel="noopener">Xem video</a>' : '');
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div><div class="bold">' + esc(h.maDon) + '</div>' +
+      '<div class="muted small">' + (h.san ? dhSan(h.san) + ' · ' : '<span style="color:var(--warn)">Không có đơn gốc trên app</span> · ') + 'Vận đơn ' + esc(h.tracking || '—') + '</div></div>' +
+      '<div class="row" style="gap:6px">' + vid + (h.photoIds.length ? '<span class="chip soft">' + h.photoIds.length + ' ảnh</span>' : '') + '</div></div>' +
+      '<div class="small">' + hoLinesTxt(h.lines) + '</div>' +
+      '<div class="muted small">Nhận bởi ' + esc(h.user) + ' lúc ' + esc(h.createdAt) + (h.ghiChu ? ' · ' + esc(h.ghiChu) : '') + '</div>' +
+      (can('hhKiemKe') ? '<div><button type="button" class="btn sm" style="color:var(--bad)" onclick="hoDel(\'' + esc(h.hoanId) + '\')">Xoá phiếu hoàn (nhập nhầm)</button></div>' : '') + '</div>';
+  }).join('') || '<div class="card muted">Chưa nhận kiện hoàn nào.</div>';
+  hhShell(top + loiCard + '<div class="row between"><h3 style="margin:0">Kiện hoàn đã nhận</h3>' +
+    (r.folderUrl && can('evidence') ? '<a class="small" href="' + esc(r.folderUrl) + '" target="_blank" rel="noopener">Thư mục video</a>' : '') + '</div>' + rows, keep);
+}
+function hoLoiOut(sku) {
+  var it = hhBySku()[sku] || {};
+  ask('Xuất bao nhiêu cái hàng lỗi ' + sku + '? (đang có ' + fmtN(it.tonLoi) + ')', { input: true, inputType: 'number', ok: 'Tiếp' }).then(function (v) {
+    var n = Math.round(Number(v));
+    if (v === null) return;
+    if (!(n > 0) || n > (it.tonLoi || 0)) return toast('Số lượng không hợp lệ.', true);
+    return ask('Lý do xuất ' + n + ' cái ' + sku + ' (ví dụ: trả xưởng sửa, huỷ bỏ):', { input: true, ok: 'Xuất hàng lỗi' }).then(function (ly) {
+      if (ly === null) return;
+      if (!String(ly).trim()) return toast('Ghi lý do nhé.', true);
+      return call('hoanLoiOut', { sku: sku, sl: n, lyDo: ly }, { text: 'Đang xuất hàng lỗi…' }).then(function (r) {
+        S.hh.items = r.items; toast('Đã xuất ' + n + ' cái hàng lỗi ' + sku + '.'); viewHoList(true);
+      });
+    });
+  });
+}
+function hoDel(id) {
+  var h = ((S.hoList && S.hoList.list) || []).filter(function (x) { return x.hoanId === id; })[0]; if (!h) return;
+  ask('Xoá phiếu hoàn ' + h.maDon + '? Tồn kho và tồn hàng lỗi sẽ bị trừ lại đúng số đã nhận, video và ảnh vào thùng rác. Ghi lý do:', { input: true, ok: 'Xoá phiếu' }).then(function (ly) {
+    if (ly === null) return;
+    call('hoanDelete', { hoanId: id, lyDo: ly }, { text: 'Đang xoá…' }).then(function (r) {
+      S.hh.items = r.items; S.hoList.list = S.hoList.list.filter(function (x) { return x.hoanId !== id; });
+      toast('Đã xoá phiếu hoàn ' + h.maDon + '.'); viewHoList(true);
+    });
+  });
+}
+
+/* ---------- Màn nhận 1 kiện hoàn ---------- */
+function hoNew() {
+  if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+  if (!(S.bag && S.bag.kind === 'hoan')) { S.bag = null; S.hoFound = null; }
+  S.view = 'hbag'; viewHBag();
+  setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+}
+function hoTT() { return S.hoTT === 'loi' ? 'loi' : 'ok'; }
+function hoFind(code) {
+  code = normCode(code); if (!code) return;
+  if (SCAN) closeScanner();
+  call('hoanFind', { code: code }, { text: 'Đang tìm đơn gốc…' }).then(function (r) {
+    S.hoFound = { code: code, don: r.don, daHoan: r.daHoan || [] }; viewHBag();
+  });
+}
+function hoStart() {
+  var f = S.hoFound; if (!f) return;
+  call('hoanStart', { code: f.code, donId: f.don ? f.don.donId : '' }, { text: 'Đang mở phiếu hoàn…' }).then(function (r) {
+    var bag = { kind: 'hoan', bagId: r.hoanId, baoNo: f.don ? f.don.maDon : f.code, don: f.don, code: f.code, job: null, videoId: null, photos: [], lines: [], ghiChu: '', ready: Promise.resolve() };
+    S.bag = bag; S.hoFound = null; vqAttach(bag); viewHBag();
+  });
+}
+function hoAdd(sku, tt) {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  tt = tt || hoTT();
+  var l = b.lines.filter(function (x) { return x.sku === sku && x.tt === tt; })[0];
+  if (l) l.sl += 1; else b.lines.push({ sku: sku, sl: 1, tt: tt });
+  hbRedraw();
+}
+function hoScanItem(code) {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code), hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([80, 60, 80]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return;
+  }
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  hoAdd(it.sku);
+  if (hint) hint.innerHTML = 'Đã thêm <b>' + esc(it.sku) + '</b> · ' + (hoTT() === 'loi' ? 'Lỗi' : 'Nguyên vẹn');
+}
+function hoItemTyped() { var i = $('hoitem'); hoScanItem(i.value); i.value = ''; i.focus(); }
+function hoStep(n, d) { var l = S.bag.lines[n]; if (!l) return; l.sl = Math.max(0, l.sl + d); if (!l.sl) S.bag.lines.splice(n, 1); hbRedraw(); }
+function hoSetSl(n, el) { var l = S.bag.lines[n], v = Math.round(Number(el.value)); if (!l) return; if (isFinite(v) && v > 0) l.sl = v; else S.bag.lines.splice(n, 1); hbRedraw(); }
+function hoFlip(n) {
+  var b = S.bag, l = b.lines[n]; if (!l) return;
+  var tt = l.tt === 'loi' ? 'ok' : 'loi', same = b.lines.filter(function (x) { return x !== l && x.sku === l.sku && x.tt === tt; })[0];
+  if (same) { same.sl += l.sl; b.lines.splice(n, 1); } else l.tt = tt;
+  hbRedraw();
+}
+function hoSum(b, tt) { var n = 0; b.lines.forEach(function (l) { if (l.tt === tt) n += l.sl; }); return n; }
+function hoLinesHtml(b) {
+  var by = hhBySku();
+  var quick = b.don && b.don.lines.length ? '<div class="row wrapflex" style="gap:6px"><span class="muted small" style="align-self:center">Hàng trong đơn gốc:</span>' + b.don.lines.map(function (l) {
+    return '<button type="button" class="btn sm" onclick="hoAdd(\'' + esc(l.sku) + '\')">＋ ' + esc(l.sku) + ' <span class="muted">(gửi ' + fmtN(l.sl) + ')</span></button>';
+  }).join('') + '</div>' : '';
+  var list = b.lines.length ? b.lines.map(function (l, n) {
+    var it = by[l.sku] || {}, loi = l.tt === 'loi';
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px;' + (loi ? 'border-color:var(--bad)' : 'border-color:var(--ok)') + '">' +
+      '<div style="flex:1 1 160px;min-width:0"><div class="bold">' + esc(l.sku) + '</div><div class="muted small">' + esc(it.tenTem || it.ten || '') + (it.phanLoai ? ' · ' + esc(it.phanLoai) : '') + '</div>' +
+      '<button type="button" class="chip ' + (loi ? 'bad' : 'ok') + '" style="border:0;cursor:pointer;margin-top:4px" onclick="hoFlip(' + n + ')">' + (loi ? 'Lỗi → bấm đổi' : 'Nguyên vẹn → bấm đổi') + '</button></div>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="hoStep(' + n + ',-1)">−</button>' +
+      '<input class="in" style="width:70px;height:42px;text-align:center" inputmode="numeric" value="' + l.sl + '" onchange="hoSetSl(' + n + ',this)">' +
+      '<button type="button" class="btn sm" onclick="hoStep(' + n + ',1)">+</button></div></div>';
+  }).join('') : '<div class="muted small">Chưa có món nào. Quét mã trên từng món, hoặc bấm nút mã hàng của đơn gốc ở trên.</div>';
+  return quick + list;
+}
+function hbBtn(b) { return '✓ Chốt hoàn · ' + fmtN(hoSum(b, 'ok')) + ' nguyên vẹn · ' + fmtN(hoSum(b, 'loi')) + ' lỗi'; }
+function viewHBag() {
+  var b = S.bag && S.bag.kind === 'hoan' ? S.bag : null, f = S.hoFound, tt = hoTT();
+  var scan = '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Quét mã vận đơn trên kiện hoàn</h3>';
+  if (b) {
+    scan += '<div class="card stack" style="padding:12px;background:var(--tint)"><div class="row between wrapflex"><div>' +
+      (b.don ? '<div class="eyebrow">' + dhSan(b.don.san) + (b.don.dvvc ? ' · ' + esc(b.don.dvvc) : '') + '</div><div class="bold" style="font-size:18px">' + esc(b.don.maDon) + '</div>' +
+        '<div class="small">Vận đơn: <b>' + esc(b.don.tracking || '—') + '</b></div><div class="small">Đơn gửi đi: ' + dhLinesTxt(b.don) + '</div>'
+        : '<div class="bold" style="font-size:18px">' + esc(b.code) + '</div><div class="small" style="color:var(--warn)">Không có đơn gốc trên app, vẫn nhận hoàn theo mã này.</div>') +
+      '</div><button type="button" class="btn sm" onclick="hoDrop()">Bỏ kiện này</button></div></div>';
+  } else {
+    scan += '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="hocode" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã vận đơn, mã đơn" onkeydown="if(event.key===\'Enter\'){event.preventDefault();hoFind(this.value)}">' +
+      '<button type="button" class="btn sm pri" style="height:50px" onclick="hoFind($(\'hocode\').value)">Tìm đơn</button>' +
+      (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(hoFind)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>';
+    if (f) {
+      scan += '<div class="card stack" style="padding:12px;' + (f.don ? 'background:var(--tint)' : 'border-color:var(--warn)') + '">' +
+        (f.don ? '<div class="eyebrow">Đơn gốc · ' + dhSan(f.don.san) + '</div><div class="bold" style="font-size:18px">' + esc(f.don.maDon) + '</div>' +
+          '<div class="small">Vận đơn: <b>' + esc(f.don.tracking || '—') + '</b> · ' + dhChip(f.don) + '</div><div class="small">' + dhLinesTxt(f.don) + '</div>'
+          : '<b style="color:var(--warn)">Không tìm thấy đơn gốc có mã ' + esc(f.code) + ' trên app.</b><div class="small">Có thể đơn chưa từng được tải lên. Vẫn nhận hoàn được, app ghi theo mã này.</div>') +
+        (f.daHoan.length ? '<div class="small" style="color:var(--bad)"><b>Đơn này đã nhận hoàn ' + f.daHoan.length + ' lần</b> (gần nhất bởi ' + esc(f.daHoan[f.daHoan.length - 1].user) + ' lúc ' + esc(f.daHoan[f.daHoan.length - 1].createdAt) + '). Kiểm tra kỹ trước khi nhận tiếp.</div>' : '') +
+        '<div class="row" style="gap:8px"><button type="button" class="btn pri" onclick="hoStart()">Nhận hoàn kiện này</button><button type="button" class="btn" onclick="S.hoFound=null;viewHBag()">Quét mã khác</button></div></div>';
+    }
+    scan += '<div class="muted small">Máy quét cầm tay: bấm vào ô rồi quét, máy tự Enter.</div>';
+  }
+  scan += '</div>';
+  var rest = '';
+  if (b) {
+    rest = '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video bóc kiện hoàn <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
+      '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Hàng trong kiện hoàn</h3>' +
+      '<div class="tabs"><button type="button" class="tab ' + (tt === 'ok' ? 'on' : '') + '" onclick="S.hoTT=\'ok\';viewHBag()">Đang quét: Nguyên vẹn</button>' +
+      '<button type="button" class="tab ' + (tt === 'loi' ? 'on' : '') + '" onclick="S.hoTT=\'loi\';viewHBag()">Đang quét: Lỗi</button></div>' +
+      '<div class="muted small">Nguyên vẹn: cộng lại tồn kho. Lỗi: vào tồn hàng lỗi. Bấm nhãn trên từng món để đổi tình trạng.</div>' +
+      '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 170px" id="hoitem" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã trên từng món" onkeydown="if(event.key===\'Enter\'){event.preventDefault();hoItemTyped()}">' +
+      (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(hoScanItem)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+      '<div id="holines" class="stack" style="gap:8px">' + hoLinesHtml(b) + '</div></div>' +
+      '<div class="card stack"><h3 style="margin:0"><span class="stepno">04</span>Ảnh hàng hoàn <span id="hophreq">' + hoPhReq(b) + '</span></h3>' +
+      '<div class="thumbs" id="nbph">' + nbPhotos(b) + '</div>' +
+      '<label class="f">Ghi chú (không bắt buộc)<input class="in" id="hogc" maxlength="300" value="' + esc(b.ghiChu) + '" placeholder="Ví dụ: khách trả vì sai size, áo bị bẩn cổ" oninput="S.bag.ghiChu=this.value"></label></div>';
+  }
+  render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="hoBack()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Kho GOD Tầng 2</div><div class="title">Nhận hàng hoàn</div></div>' + (S.hoDem ? '<span class="chip ok">Đã nhận ' + S.hoDem + ' kiện</span>' : '') + '</div>' +
+    scan + rest + '</div>' +
+    '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="pfile" accept="image/*" capture="environment" hidden onchange="gotPhotos(this)">' +
+    (b ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="hbgo" onclick="hoSave()">' + hbBtn(b) + '</button></div></div>' : '') +
+    nav('hh'));
+}
+function hoPhReq(b) { return hoSum(b, 'loi') ? '<span class="chip bad" style="margin-left:6px">Bắt buộc vì có hàng lỗi</span>' : '<span class="chip soft" style="margin-left:6px">Nên chụp</span>'; }
+function hbRedraw() {
+  var b = S.bag; if (!b || b.kind !== 'hoan' || S.view !== 'hbag') return;
+  if ($('nbvid')) $('nbvid').innerHTML = vidBox(b);
+  if ($('nbph')) $('nbph').innerHTML = nbPhotos(b);
+  if ($('holines')) $('holines').innerHTML = hoLinesHtml(b);
+  if ($('hophreq')) $('hophreq').innerHTML = hoPhReq(b);
+  if ($('hbgo')) $('hbgo').innerHTML = hbBtn(b);
+}
+function hoBack() {
+  if (REC) return toast('Đang quay video, dừng quay trước nhé.', true);
+  S.view = 'hh'; S.hhTab = 'hoan'; S.hoFound = null; hoLoadList();
+}
+function hoDrop() {
+  var b = S.bag; if (!b) return;
+  ask('Bỏ kiện hoàn ' + b.baoNo + '? Video, ảnh đã chụp của kiện này sẽ bị bỏ, tồn kho không đổi.', { ok: 'Bỏ kiện', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (REC) closeRecorder(true);
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId; }).forEach(vqDrop);
+    S.bag = null; S.hoFound = null; viewHBag();
+    call('hoanCancel', { hoanId: b.bagId }, { quiet: true, silent: true }).catch(function () {});
+    setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+  });
+}
+function hoSave() {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  if (!b.lines.length) return toast('Chưa có món hàng hoàn nào.', true);
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Chưa có video bóc kiện hoàn.', true);
+  if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
+  if (hoSum(b, 'loi') && !b.photos.length) return toast('Có hàng lỗi: chụp ít nhất 1 ảnh hàng lỗi nhé.', true);
+  var vid = b.videoId || '';
+  call('hoanSave', { hoanId: b.bagId, lines: b.lines, videoId: vid, videoPending: !vid && !!(b.job && b.job.keep),
+    photoIds: b.photos.map(function (p) { return p.id; }), ghiChu: b.ghiChu }, { text: 'Đang chốt hoàn…' }).then(function (r) {
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+      if (vid && j.fileId === vid) return vqDrop(j);
+      if (!j.keep) return vqDrop(j);
+      j.saved = true; vqSave(j); vqKick();
+    });
+    if (S.hh) S.hh.items = r.items;
+    S.hoList = null; S.bag = null; S.hoFound = null; S.hoDem = (S.hoDem || 0) + 1;
+    toast('Đã chốt hoàn ' + r.hoan.maDon + ': ' + hoSum({ lines: r.hoan.lines }, 'ok') + ' cái cộng lại tồn kho, ' + hoSum({ lines: r.hoan.lines }, 'loi') + ' cái vào hàng lỗi.' + (vid ? '' : ' Video đang tự tải tiếp.'));
+    viewHBag();
+    setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
   });
 }
 

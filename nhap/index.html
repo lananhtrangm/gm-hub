@@ -2975,8 +2975,9 @@ function dhLoadList() {
 }
 function dhLastCard() {
   var r = S.dhLast; if (!r) return '';
-  return '<div class="card stack" style="border-color:var(--pri)"><div class="row between"><div class="bold">Đã tải: ' + esc(r.ten) + '</div>' +
+  return '<div class="card stack" style="border-color:var(--pri)"><div class="row between"><div class="bold">' + (r.khongMoi ? 'Không có đơn mới trong file' : 'Đã tải: ' + esc(r.ten)) + '</div>' +
     '<button type="button" class="btn sm" onclick="S.dhLast=null;viewDhList()">Đóng</button></div>' +
+    (r.khongMoi ? '<div class="small">Các đơn trong file đều đã có trên app, nên app <b>không tạo lần tải mới</b>; chỉ cập nhật mã vận đơn / trạng thái cho ' + fmtN(r.capNhat) + ' đơn.</div>' : '') +
     '<div class="small">' + dhSan(r.san) + ' · ' + fmtN(r.tongDon) + ' đơn trong file → giữ <b>' + fmtN(r.giuDon) + '</b> đơn có mã đang quản lý (mới ' + fmtN(r.moi) + ', cập nhật ' + fmtN(r.capNhat) + ').</div>' +
     (r.chuaVanDon ? '<div class="small" style="color:var(--bad)"><b>' + fmtN(r.chuaVanDon) + ' đơn chưa có mã vận đơn</b>: quét tem sẽ không tìm ra. Sau khi in tem, xuất lại file và tải lên để bổ sung (không bị trùng).</div>' : '') +
     (r.ngoai ? '<div class="small">' + fmtN(r.ngoai) + ' đơn sàn báo <b>đã lấy hàng / đang giao / đã giao</b> → ghi "Đã đóng ngoài app", không cần quét, không trừ tồn.</div>' : '') +

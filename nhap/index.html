@@ -2917,7 +2917,7 @@ function loadXlsx() {
 /* Tên cột (đã bỏ dấu, chữ thường) → trường cần lấy. Cột khác bỏ qua hết. */
 var DH_COLS = {
   tiktok: { maDon: ['order id'], sku: ['seller sku'], sl: ['quantity'], tracking: ['tracking id'], packageId: ['package id'],
-    dvvc: ['shipping provider name'], trangThai: ['order substatus', 'order status'], pl: ['variation'] },
+    dvvc: ['shipping provider name'], trangThai: ['order status'], trangThai2: ['order substatus'], pl: ['variation'] },
   shopee: { maDon: ['ma don hang'], sku: ['sku phan loai hang'], sl: ['so luong'], tracking: ['ma van don'], packageId: ['ma kien hang'],
     dvvc: ['don vi van chuyen'], trangThai: ['trang thai don hang'], pl: ['ten phan loai hang'] }
 };
@@ -2932,6 +2932,7 @@ function dhParseSheet(rows) {
         idx[f] = j;
       });
       if (idx.maDon < 0 || idx.sku < 0 || idx.sl < 0) ok = false;
+      if (!('trangThai2' in idx)) idx.trangThai2 = -1;
       if (!ok) continue;
       var out = [], sci = 0;
       for (var r = h + 1; r < rows.length; r++) {
@@ -2939,7 +2940,7 @@ function dhParseSheet(rows) {
         var ma = g('maDon').replace(/^'+/, '');
         if (!/^[0-9A-Za-z-]{6,}$/.test(ma)) { if (/E\+/i.test(ma)) sci++; continue; }   // bỏ dòng mô tả (TikTok dòng 2), dòng trống
         out.push({ maDon: ma, sku: g('sku'), sl: Number(g('sl').replace(/[^\d.-]/g, '')) || 0, tracking: g('tracking').replace(/^'+/, ''),
-          packageId: g('packageId').replace(/^'+/, ''), dvvc: g('dvvc'), trangThai: g('trangThai'), pl: g('pl') });
+          packageId: g('packageId').replace(/^'+/, ''), dvvc: g('dvvc'), trangThai: [g('trangThai'), g('trangThai2')].filter(Boolean).join(' · '), pl: g('pl') });
       }
       return { san: san, rows: out, sci: sci };
     }
@@ -2978,6 +2979,8 @@ function dhLastCard() {
     '<button type="button" class="btn sm" onclick="S.dhLast=null;viewDhList()">Đóng</button></div>' +
     '<div class="small">' + dhSan(r.san) + ' · ' + fmtN(r.tongDon) + ' đơn trong file → giữ <b>' + fmtN(r.giuDon) + '</b> đơn có mã đang quản lý (mới ' + fmtN(r.moi) + ', cập nhật ' + fmtN(r.capNhat) + ').</div>' +
     (r.chuaVanDon ? '<div class="small" style="color:var(--bad)"><b>' + fmtN(r.chuaVanDon) + ' đơn chưa có mã vận đơn</b>: quét tem sẽ không tìm ra. Sau khi in tem, xuất lại file và tải lên để bổ sung (không bị trùng).</div>' : '') +
+    (r.ngoai ? '<div class="small">' + fmtN(r.ngoai) + ' đơn sàn báo <b>đã lấy hàng / đang giao / đã giao</b> → ghi "Đã đóng ngoài app", không cần quét, không trừ tồn.</div>' : '') +
+    (r.huy ? '<div class="small">' + fmtN(r.huy) + ' đơn sàn báo <b>đã huỷ</b> → xếp vào mục Huỷ.</div>' : '') +
     (r.daXong ? '<div class="small muted">' + fmtN(r.daXong) + ' đơn đã đóng từ trước: giữ nguyên, chỉ bổ sung mã vận đơn nếu có.</div>' : '') +
     (r.gan && r.gan.length ? '<div class="small" style="color:var(--warn)">Khớp gần đúng (khác đuôi -LATE): ' + r.gan.map(function (g) { return esc(g.goc) + ' → ' + esc(g.sku); }).join(', ') + '</div>' : '') +
     (r.boQua ? '<details class="small"><summary>Bỏ qua ' + fmtN(r.boQua) + ' dòng có mã không thuộc danh sách quản lý</summary><div class="muted">' +
@@ -2991,10 +2994,10 @@ function viewDhList() {
     '<input type="file" id="dhfile" accept=".xlsx,.xls,.csv" hidden onchange="dhPickFile(this)"></div>' : '';
   var pack = can('hhDon') ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="dhPack()">' + ICON.scan + ' Quét đóng đơn</button>' : '';
   var rows = (S.dhList || []).map(function (l) {
-    var conLai = l.soDon - l.xong;
+    var conLai = l.cho !== undefined ? l.cho : l.soDon - l.xong;
     return '<button type="button" class="card lotcard" onclick="dhOpen(\'' + esc(l.lanId) + '\')">' +
       '<div class="row between"><div class="bold">' + esc(l.ten) + '</div>' + (conLai ? '<span class="chip warn">Còn ' + fmtN(conLai) + ' đơn</span>' : '<span class="chip ok">Đã đóng hết</span>') + '</div>' +
-      '<div class="small">' + dhSan(l.san) + ' · ' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + (l.chuaVanDon ? ' · <span style="color:var(--bad)">' + l.chuaVanDon + ' đơn chưa có mã vận đơn</span>' : '') + '</div>' +
+      '<div class="small">' + dhSan(l.san) + ' · ' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + (l.ngoai ? ' · ngoài app ' + fmtN(l.ngoai) : '') + (l.huy ? ' · huỷ ' + fmtN(l.huy) : '') + (l.chuaVanDon ? ' · <span style="color:var(--bad)">' + l.chuaVanDon + ' đơn chưa có mã vận đơn</span>' : '') + '</div>' +
       '<div class="muted small">' + esc(l.createdAt) + ' · ' + esc(l.user) + (l.fileName ? ' · ' + esc(l.fileName) : '') + '</div></button>';
   }).join('') || '<div class="card muted">Chưa tải file đơn nào.</div>';
   hhShell(dhLastCard() + pack + up + rows);
@@ -3005,7 +3008,7 @@ function dhOpen(id) {
   call('dhGet', { lanId: id }, { quiet: true }).then(function (d) { S.dhCur = d; if (S.view === 'hh' && S.dhLanId === id && !editing()) viewDhLan(true); });
 }
 function dhChip(o) {
-  return o.status === 'xong' ? '<span class="chip ok">Đã đóng</span>' : o.status === 'huy' ? '<span class="chip bad">Huỷ</span>' : '<span class="chip warn">Chưa đóng</span>';
+  return o.status === 'xong' ? '<span class="chip ok">Đã đóng</span>' : o.status === 'ngoai' ? '<span class="chip soft">Đã đóng ngoài app</span>' : o.status === 'huy' ? '<span class="chip bad">Huỷ</span>' : '<span class="chip warn">Chưa đóng</span>';
 }
 function dhLinesTxt(o) { return o.lines.map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + (o.khac ? ' <span class="muted">(+' + o.khac + ' món mã khác)</span>' : ''); }
 function viewDhLan(keep) {
@@ -3016,7 +3019,7 @@ function viewDhLan(keep) {
   order.sort();
   var by = hhBySku();
   var cnt = function (st) { return d.dons.filter(function (o) { return st === 'all' || o.status === st; }).length; };
-  var tabs = [['cho', 'Chưa đóng'], ['xong', 'Đã đóng'], ['huy', 'Huỷ'], ['all', 'Tất cả']].map(function (t) {
+  var tabs = [['cho', 'Chưa đóng'], ['xong', 'Đã đóng'], ['ngoai', 'Ngoài app'], ['huy', 'Huỷ'], ['all', 'Tất cả']].map(function (t) {
     return '<button type="button" class="tab ' + (f === t[0] ? 'on' : '') + '" onclick="S.dhF=\'' + t[0] + '\';viewDhLan(true)">' + t[1] + ' (' + cnt(t[0]) + ')</button>';
   }).join('');
   var rows = list.slice(0, 300).map(function (o) {
@@ -3028,11 +3031,12 @@ function viewDhLan(keep) {
       '<div class="row wrapflex" style="gap:6px">' +
       (o.status === 'cho' && can('hhDon') ? '<button type="button" class="btn sm pri" onclick="dhPackDon(\'' + esc(o.donId) + '\')">Đóng đơn này</button>' : '') +
       (o.status === 'xong' && can('hhKiemKe') ? '<button type="button" class="btn sm danger" onclick="dhUndo(\'' + esc(o.donId) + '\',false)">Huỷ đóng (cộng lại tồn)</button>' : '') +
+      ((o.status === 'ngoai' || o.status === 'huy') && can('hhKiemKe') ? '<button type="button" class="btn sm" onclick="dhUndo(\'' + esc(o.donId) + '\',false)">Chuyển về Chưa đóng</button>' : '') +
       (o.status !== 'huy' && can('hhKiemKe') ? '<button type="button" class="btn sm" onclick="dhUndo(\'' + esc(o.donId) + '\',true)">Đánh dấu đơn huỷ</button>' : '') + '</div></div>';
   }).join('') || '<div class="muted small">Không có đơn nào.</div>';
   var body = '<div class="row"><button type="button" class="iconbtn" aria-label="Về danh sách" onclick="S.dhLanId=null;dhLoadList()">' + ICON.back + '</button>' +
     '<div class="grow"><div class="eyebrow">Đơn hàng · ' + dhSan(l.san) + '</div><div class="title" style="font-size:20px">' + esc(l.ten) + '</div></div></div>' +
-    '<div class="muted small">' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + ' · tải bởi ' + esc(l.user) + ' lúc ' + esc(l.createdAt) +
+    '<div class="muted small">' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + (l.ngoai ? ' · ngoài app ' + fmtN(l.ngoai) : '') + ' · tải bởi ' + esc(l.user) + ' lúc ' + esc(l.createdAt) +
     (l.folderUrl && can('evidence') ? ' · <a href="' + esc(l.folderUrl) + '" target="_blank" rel="noopener">Thư mục video</a>' : '') + '</div>' +
     (can('hhDon') && cho.length ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="dhPack()">' + ICON.scan + ' Quét đóng đơn (' + cho.length + ' đơn chờ)</button>' : '') +
     (order.length ? '<details class="card"><summary class="bold" style="cursor:pointer">Tổng hàng cần soạn cho ' + cho.length + ' đơn chưa đóng</summary><div class="tablebox" style="margin-top:8px"><table class="t" style="min-width:0"><thead><tr><th>Mã SKU</th><th class="num">Cần</th><th class="num">Tồn kho</th></tr></thead><tbody>' +
@@ -3045,12 +3049,15 @@ function viewDhLan(keep) {
   hhShell(body, keep);
 }
 function dhUndo(donId, huy) {
-  ask(huy ? 'Đánh dấu đơn này là ĐƠN HUỶ? Nếu đơn đã đóng, tồn kho sẽ được cộng lại. Ghi lý do:' : 'Huỷ đóng đơn này? Tồn kho được cộng lại, video vào thùng rác, đơn trở về "Chưa đóng". Ghi lý do:', { input: true, ok: huy ? 'Đánh dấu huỷ' : 'Huỷ đóng' }).then(function (ly) {
+  var o = (S.dhCur && S.dhCur.dons.filter(function (x) { return x.donId === donId; })[0]) || {}, xong = o.status === 'xong';
+  ask(huy ? 'Đánh dấu đơn này là ĐƠN HUỶ?' + (xong ? ' Tồn kho sẽ được cộng lại.' : '') + ' Ghi lý do:'
+    : xong ? 'Huỷ đóng đơn này? Tồn kho được cộng lại, video vào thùng rác, đơn trở về "Chưa đóng". Ghi lý do:'
+    : 'Chuyển đơn này về "Chưa đóng" để quét đóng trên app (khi đóng xong sẽ trừ tồn)? Ghi lý do:', { input: true, ok: huy ? 'Đánh dấu huỷ' : xong ? 'Huỷ đóng' : 'Chuyển về Chưa đóng' }).then(function (ly) {
     if (ly === null) return;
     call('dhUndo', { donId: donId, huy: huy, lyDo: ly }, { text: 'Đang cập nhật…' }).then(function (r) {
       if (S.hh) S.hh.items = r.items; S.dhList = null;
       if (S.dhCur) S.dhCur.dons = S.dhCur.dons.map(function (o) { return o.donId === donId ? r.don : o; });
-      toast(huy ? 'Đã đánh dấu đơn huỷ.' : 'Đã huỷ đóng đơn, tồn kho đã cộng lại.'); viewDhLan(true);
+      toast(huy ? 'Đã đánh dấu đơn huỷ.' : xong ? 'Đã huỷ đóng đơn, tồn kho đã cộng lại.' : 'Đã chuyển đơn về Chưa đóng.'); viewDhLan(true);
     });
   });
 }
@@ -3160,8 +3167,9 @@ function viewDBag() {
         (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(dhScanTem)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
         '<div class="muted small">Máy quét cầm tay: bấm vào ô rồi quét, máy tự Enter.</div>' +
         (S.dhMiss ? '<div class="card" style="border-color:var(--bad);padding:10px 12px"><b style="color:var(--bad)">Không tìm thấy đơn có mã ' + esc(S.dhMiss) + '.</b><div class="small">Có thể đơn chưa được tải lên, hoặc file tải lên lúc chưa có mã vận đơn: xuất lại file sau khi in tem rồi tải lên. Hoặc đơn này không có mã hàng nào đang quản lý.</div></div>' : '') +
-        (S.dhSeen ? '<div class="card" style="border-color:var(--bad);padding:10px 12px"><b style="color:var(--bad)">Đơn ' + esc(S.dhSeen.maDon) + (S.dhSeen.status === 'xong' ? ' ĐÃ ĐÓNG rồi' : ' đã bị HUỶ') + '.</b><div class="small">' +
-          (S.dhSeen.status === 'xong' ? 'Đóng bởi ' + esc(S.dhSeen.user) + ' lúc ' + esc(S.dhSeen.doneAt) + '. Không trừ tồn lần nữa.' : esc(S.dhSeen.ghiChu || '')) + '</div><div class="small">' + dhLinesTxt(S.dhSeen) + '</div></div>' : '')) + '</div>';
+        (S.dhSeen ? '<div class="card" style="border-color:var(--bad);padding:10px 12px"><b style="color:var(--bad)">Đơn ' + esc(S.dhSeen.maDon) + (S.dhSeen.status === 'xong' ? ' ĐÃ ĐÓNG rồi' : S.dhSeen.status === 'ngoai' ? ' ĐÃ ĐÓNG NGOÀI APP' : ' đã bị HUỶ') + '.</b><div class="small">' +
+          (S.dhSeen.status === 'xong' ? 'Đóng bởi ' + esc(S.dhSeen.user) + ' lúc ' + esc(S.dhSeen.doneAt) + '. Không trừ tồn lần nữa.'
+            : S.dhSeen.status === 'ngoai' ? esc(S.dhSeen.ghiChu || 'Theo trạng thái sàn') + '. Không trừ tồn. Nếu thật sự cần đóng trên app, vào danh sách đơn bấm "Chuyển về Chưa đóng".' : esc(S.dhSeen.ghiChu || '')) + '</div><div class="small">' + dhLinesTxt(S.dhSeen) + '</div></div>' : '')) + '</div>';
   var rest = '';
   if (b) {
     rest = '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video đóng đơn <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +

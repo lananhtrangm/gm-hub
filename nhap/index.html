@@ -2394,10 +2394,19 @@ function viewHh(keep) {
 
 /* ---------- Tồn kho ---------- */
 function fmtN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+function hhTonModes() {
+  var m = S.tonMode || 'ma';
+  return '<div class="tabs" style="flex-wrap:wrap">' + [['ma', 'Theo mã hàng'], ['xuong', 'Theo xưởng']].concat(can('hhGoi') ? [['goi', '📦 Gọi hàng về kho']] : []).map(function (t) {
+    return '<button type="button" class="tab ' + (m === t[0] ? 'on' : '') + '" onclick="hhTonMode(\'' + t[0] + '\')">' + t[1] + '</button>';
+  }).join('') + '</div>';
+}
+function hhTonMode(m) { S.tonMode = m; if (m === 'goi') return goiOpen(); viewHhTon(); }
 function viewHhTon(keep) {
+  if (S.tonMode === 'xuong') return viewHxTon(keep);
+  if (S.tonMode === 'goi' && can('hhGoi')) return S.goiInfo ? viewGoi(keep) : goiOpen();
   var it = S.hh.items, tk = 0, tx = 0, sx = 0, tl = 0;
   it.forEach(function (i) { tk += i.tonKho; tx += i.tonXuong; sx += i.dangSx; tl += i.tonLoi || 0; });
-  var body = '<div class="card stack">' +
+  var body = hhTonModes() + '<div class="card stack">' +
     '<div class="row wrapflex" style="gap:8px"><span class="chip soft">' + it.length + ' mã lẻ</span><span class="chip ok">Tồn kho ' + fmtN(tk) + '</span>' +
     '<span class="chip warn">Tồn xưởng ' + fmtN(tx) + '</span><span class="chip soft">Đang SX ' + fmtN(sx) + '</span>' + (tl ? '<span class="chip bad">Hàng lỗi ' + fmtN(tl) + '</span>' : '') + '</div>' +
     '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="hhFilter()" value="' + esc(S.hhQ || '') + '">' +
@@ -2431,8 +2440,8 @@ function hhTonRows() {
 function hhFilter() { S.hhQ = $('hhq').value; $('hhtb').innerHTML = hhTonRows(); }
 function hhSync() {
   call('hhSync', {}, { text: 'Đang đọc file sản xuất…' }).then(function (r) {
-    S.hh.items = r.items; S.hh.syncAt = r.syncAt;
-    toast('Đã cập nhật tồn xưởng' + (r.added ? ', thêm ' + r.added + ' mã lẻ mới' : '') + '.');
+    S.hh.items = r.items; S.hh.syncAt = r.syncAt; S.hh.xuong = r.xuong; S.hh.nhanTen = r.nhanTen;
+    toast('Đã cập nhật tồn xưởng' + (r.added ? ', thêm ' + r.added + ' mã lẻ mới' : '') + '.' + (r.xuongErr ? ' Chưa đọc được tồn từng xưởng: ' + r.xuongErr : ''), !!r.xuongErr);
     viewHh(true);
   });
 }
@@ -3487,6 +3496,157 @@ function hoSave() {
     toast('Đã chốt hoàn ' + r.hoan.maDon + ': ' + hoSum({ lines: r.hoan.lines }, 'ok') + ' cái cộng lại tồn kho, ' + hoSum({ lines: r.hoan.lines }, 'loi') + ' cái vào hàng lỗi.' + (vid ? '' : ' Video đang tự tải tiếp.'));
     viewHBag();
     setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+  });
+}
+
+/* ===================== TỒN THEO XƯỞNG + GỌI HÀNG VỀ KHO ===================== */
+function hxRows(sku) { return ((S.hh && S.hh.xuong) || {})[sku] || []; }
+function hxAllXuong() {
+  var m = {}; Object.keys((S.hh && S.hh.xuong) || {}).forEach(function (k) { S.hh.xuong[k].forEach(function (x) { m[x.xuong] = 1; }); });
+  return Object.keys(m).sort();
+}
+function viewHxTon(keep) {
+  var xs = hxAllXuong(), fx = S.hxF || '';
+  var head = hhTonModes() + '<div class="card stack">' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="S.hhQ=this.value;$(\'hxtb\').innerHTML=hxTonRows()" value="' + esc(S.hhQ || '') + '">' +
+    '<select class="in" style="flex:0 1 150px" onchange="S.hxF=this.value;$(\'hxtb\').innerHTML=hxTonRows()"><option value="">Tất cả xưởng</option>' +
+    xs.map(function (x) { return '<option' + (x === fx ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>' +
+    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật</button></div>' +
+    '<div class="muted small">Số liệu từng xưởng lấy từ sheet "BÁO CÁO LỆNH SX" của file sản xuất' + (S.hh.syncAt ? ', cập nhật lúc ' + esc(S.hh.syncAt) : '') + '. Tồn xưởng = hàng đã sản xuất xong chưa giao về kho.</div>' +
+    (xs.length ? '' : '<div class="small" style="color:var(--warn)">Chưa có số liệu theo xưởng: bấm "↻ Cập nhật" để app đọc file sản xuất.</div>') +
+    '<div class="tablebox"><table class="t" style="min-width:760px"><thead><tr><th>Mã SKU / Xưởng</th><th class="num">Tồn kho</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th><th class="num">Lỗi ở kho</th><th class="num">Tổng tồn xưởng</th><th class="num">' + esc(S.hh.nhanTen || 'SL đã nhận') + '</th><th>Trạng thái</th></tr></thead>' +
+    '<tbody id="hxtb">' + hxTonRows() + '</tbody></table></div></div>';
+  hhShell(head, keep);
+}
+function hxTonRows() {
+  var q = foldQ(S.hhQ || ''), fx = S.hxF || '', out = [];
+  S.hh.items.forEach(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return;
+    var xs = hxRows(i.sku).filter(function (x) { return !fx || x.xuong === fx; });
+    if (fx && !xs.length) return;
+    var t = { tonXuong: 0, dangSx: 0, loiKho: 0, tongTon: 0, nhanThang: 0 };
+    xs.forEach(function (x) { Object.keys(t).forEach(function (k) { t[k] += x[k]; }); });
+    var n = function (v) { return v ? fmtN(v) : '<span class="muted">-</span>'; };
+    out.push('<tr style="background:var(--soft)"><td><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai || '') + '</span></td><td class="num bold">' + fmtN(i.tonKho) + '</td>' +
+      '<td class="num bold">' + n(t.tonXuong) + '</td><td class="num bold">' + n(t.dangSx) + '</td><td class="num bold">' + n(t.loiKho) + '</td><td class="num bold">' + n(t.tongTon) + '</td><td class="num bold">' + n(t.nhanThang) + '</td><td>' + (xs.length ? '' : '<span class="muted small">Không có ở xưởng nào</span>') + '</td></tr>');
+    xs.forEach(function (x) {
+      out.push('<tr><td style="padding-left:22px">' + esc(x.xuong) + '</td><td></td><td class="num">' + n(x.tonXuong) + '</td><td class="num">' + n(x.dangSx) + '</td><td class="num">' + n(x.loiKho) + '</td><td class="num">' + n(x.tongTon) + '</td><td class="num">' + n(x.nhanThang) + '</td><td class="small">' + esc(x.trangThai) + '</td></tr>');
+    });
+  });
+  return out.join('') || '<tr><td colspan="8" class="muted">Không có mã nào khớp.</td></tr>';
+}
+
+/* ---------- Gọi hàng từ xưởng về kho ---------- */
+function goiCart() { if (!S.goi) { try { S.goi = JSON.parse(load('godfbs_goi') || '{}'); } catch (e) { S.goi = {}; } } return S.goi; }
+function goiSaveCart() { store('godfbs_goi', JSON.stringify(S.goi || {})); }
+function goiOpen() {
+  S.tonMode = 'goi'; goiCart();
+  if (S.goiInfo) viewGoi(); else hhShell(hhTonModes() + '<div class="card muted">Đang tải…</div>');
+  if (S.goiBusy) return;
+  S.goiBusy = true;
+  call('goiInfo', {}, { quiet: true }).then(function (r) {
+    S.goiBusy = false; S.goiInfo = r;
+    if (!S.goiNguoi) S.goiNguoi = load('godfbs_goi_nguoi') || '';
+    if (!S.goiNguoi && r.nguoiList.indexOf(r.me) >= 0) S.goiNguoi = r.me;
+    if (S.view === 'hh' && S.hhTab === 'ton' && S.tonMode === 'goi' && !editing()) viewGoi(true);
+  }).catch(function () { S.goiBusy = false; });
+}
+function goiCan(sku) { return ((S.goiInfo && S.goiInfo.canDon) || {})[sku] || 0; }
+function goiGoiY(i) { return Math.max(0, goiCan(i.sku) - (i.tonKho || 0)); }
+function goiSum() {
+  var c = goiCart(), n = 0, sl = 0;
+  Object.keys(c).forEach(function (k) { if (c[k] > 0) { n++; sl += c[k]; } });
+  return { n: n, sl: sl };
+}
+function viewGoi(keep) {
+  var info = S.goiInfo || { nguoiList: [], canDon: {}, phieu: [] }, sum = goiSum();
+  var top = hhTonModes() + '<div class="card stack">' +
+    '<div class="muted small">Chọn mã, xưởng và số lượng cần gọi về kho. Gợi ý = hàng các đơn Chưa đóng − tồn kho (chị sửa lại được). Chốt phiếu thì app ghi vào sheet <b>NHẬN HÀNG (Kho HN)</b> của file sản xuất.</div>' +
+    (info.err ? '<div class="small" style="color:var(--bad)">' + esc(info.err) + '</div>' : '') +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="goiq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="S.goiQ=this.value;$(\'goilist\').innerHTML=goiRows()" value="' + esc(S.goiQ || '') + '">' +
+    '<label class="row small" style="gap:6px"><input type="checkbox" ' + (S.goiCan ? 'checked' : '') + ' onchange="S.goiCan=this.checked;$(\'goilist\').innerHTML=goiRows()"> Chỉ mã đang thiếu cho đơn</label>' +
+    '<button type="button" class="btn sm" onclick="goiFillAll()">Điền theo gợi ý</button></div></div>' +
+    '<div id="goilist" class="stack" style="gap:8px">' + goiRows() + '</div>' +
+    '<div class="card stack" id="goicart">' + goiCartHtml() + '</div>' +
+    (info.phieu.length ? '<h3 style="margin:0">Phiếu gọi hàng gần đây</h3>' + info.phieu.map(function (p) {
+      var g = {}; p.lines.forEach(function (l) { (g[l.xuong] = g[l.xuong] || []).push(esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'); });
+      return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div class="bold">' + esc(p.phieuId) + '</div><span class="muted small">' + esc(p.createdAt) + ' · gọi: ' + esc(p.nguoiGoi) + ' · dòng ' + esc(p.sheetRows) + '</span></div>' +
+        Object.keys(g).map(function (x) { return '<div class="small"><b>' + esc(x) + ':</b> ' + g[x].join(' · ') + '</div>'; }).join('') + '</div>';
+    }).join('') : '');
+  hhShell(top + '<div style="height:90px"></div>' +
+    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="goigo" onclick="goiChot()">' + goiBtn(sum) + '</button></div></div>', keep);
+}
+function goiBtn(sum) { return sum.n ? '✓ Chốt phiếu gọi hàng · ' + sum.n + ' dòng · ' + fmtN(sum.sl) + ' cái' : 'Chưa chọn hàng để gọi'; }
+function goiRows() {
+  var q = foldQ(S.goiQ || ''), c = goiCart();
+  var list = S.hh.items.filter(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return false;
+    return !S.goiCan || goiGoiY(i) > 0;
+  });
+  if (!list.length) return '<div class="card muted">Không có mã nào khớp.</div>';
+  return list.slice(0, 200).map(function (i) {
+    var xs = hxRows(i.sku), gy = goiGoiY(i), can = goiCan(i.sku);
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div><div class="bold">' + esc(i.sku) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div></div>' +
+      '<div class="row wrapflex" style="gap:6px"><span class="chip soft">Tồn kho ' + fmtN(i.tonKho) + '</span>' + (can ? '<span class="chip warn">Đơn chờ cần ' + fmtN(can) + '</span>' : '') +
+      (gy ? '<button type="button" class="chip bad" style="border:0;cursor:pointer" onclick="goiFill(\'' + esc(i.sku) + '\')">Gợi ý gọi ' + fmtN(gy) + ' → điền</button>' : '') + '</div></div>' +
+      (xs.length ? xs.map(function (x) {
+        var k = i.sku + '|' + x.xuong, v = c[k] || '';
+        return '<div class="row between wrapflex" style="gap:6px 10px;border-top:1px solid var(--line);padding-top:8px"><div style="flex:1 1 180px"><b>' + esc(x.xuong) + '</b> <span class="small">tồn xưởng <b>' + fmtN(x.tonXuong) + '</b> · đang SX ' + fmtN(x.dangSx) + '</span></div>' +
+          '<input class="in" style="width:90px;height:40px;text-align:center" inputmode="numeric" placeholder="SL gọi" value="' + v + '" data-k="' + esc(k) + '" onchange="goiSet(this)"></div>';
+      }).join('') : '<div class="muted small">Không có ở xưởng nào (bấm "↻ Cập nhật" ở mục Theo xưởng nếu vừa có lệnh mới).</div>') + '</div>';
+  }).join('');
+}
+function goiSet(el) {
+  var c = goiCart(), v = Math.round(Number(el.value));
+  if (isFinite(v) && v > 0) c[el.getAttribute('data-k')] = v; else { delete c[el.getAttribute('data-k')]; el.value = ''; }
+  goiSaveCart(); goiRedraw();
+}
+function goiFill(sku) {
+  var i = hhBySku()[sku]; if (!i) return;
+  var c = goiCart(), need = goiGoiY(i);
+  hxRows(sku).forEach(function (x) { delete c[sku + '|' + x.xuong]; });
+  hxRows(sku).slice().sort(function (a, b) { return b.tonXuong - a.tonXuong; }).forEach(function (x) {
+    if (need <= 0 || x.tonXuong <= 0) return;
+    var n = Math.min(need, x.tonXuong); c[sku + '|' + x.xuong] = n; need -= n;
+  });
+  goiSaveCart();
+  if (need > 0) toast('Các xưởng chỉ còn đủ một phần: thiếu ' + fmtN(need) + ' cái ' + sku + ' (có thể gọi thêm từ hàng đang SX).', true);
+  $('goilist').innerHTML = goiRows(); goiRedraw();
+}
+function goiFillAll() {
+  var n = 0;
+  S.hh.items.forEach(function (i) { if (goiGoiY(i) > 0 && hxRows(i.sku).some(function (x) { return x.tonXuong > 0; })) { goiFill(i.sku); n++; } });
+  toast(n ? 'Đã điền gợi ý cho ' + n + ' mã. Kiểm tra lại số lượng trước khi chốt nhé.' : 'Không có mã nào đang thiếu cho đơn chờ.');
+}
+function goiCartHtml() {
+  var c = goiCart(), g = {}, info = S.goiInfo || { nguoiList: [] };
+  Object.keys(c).forEach(function (k) { if (!(c[k] > 0)) return; var p = k.split('|'); (g[p[1]] = g[p[1]] || []).push({ sku: p[0], sl: c[k] }); });
+  var xs = Object.keys(g).sort();
+  var nl = info.nguoiList.slice(); if (S.goiNguoi && nl.indexOf(S.goiNguoi) < 0) nl.unshift(S.goiNguoi);
+  return '<div class="row between"><h3 style="margin:0">Phiếu gọi hàng</h3>' + (xs.length ? '<button type="button" class="btn sm" onclick="goiClear()">Xoá hết</button>' : '') + '</div>' +
+    (xs.length ? xs.map(function (x) {
+      var t = 0; g[x].forEach(function (l) { t += l.sl; });
+      return '<div class="small"><b>' + esc(x) + '</b> (' + fmtN(t) + ' cái): ' + g[x].map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + '</div>';
+    }).join('') : '<div class="muted small">Chưa có dòng nào. Nhập số lượng gọi ở từng xưởng phía trên.</div>') +
+    '<label class="f">Người gọi hàng' + (nl.length ? '<select class="in" onchange="S.goiNguoi=this.value;store(\'godfbs_goi_nguoi\',this.value)"><option value="">— Chọn —</option>' +
+      nl.map(function (x) { return '<option' + (x === S.goiNguoi ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'
+      : '<input class="in" value="' + esc(S.goiNguoi || '') + '" oninput="S.goiNguoi=this.value;store(\'godfbs_goi_nguoi\',this.value)">') + '</label>';
+}
+function goiRedraw() { if ($('goicart')) $('goicart').innerHTML = goiCartHtml(); if ($('goigo')) $('goigo').innerHTML = goiBtn(goiSum()); }
+function goiClear() { ask('Xoá hết các dòng trong phiếu gọi hàng đang soạn?', { ok: 'Xoá hết', danger: true }).then(function (ok) { if (!ok) return; S.goi = {}; goiSaveCart(); viewGoi(true); }); }
+function goiChot() {
+  var c = goiCart(), lines = [];
+  Object.keys(c).forEach(function (k) { if (c[k] > 0) { var p = k.split('|'); lines.push({ sku: p[0], xuong: p[1], sl: c[k] }); } });
+  if (!lines.length) return toast('Chưa chọn hàng để gọi.', true);
+  if (!S.goiNguoi) return toast('Chọn người gọi hàng nhé.', true);
+  var sum = goiSum();
+  ask('Chốt phiếu gọi ' + fmtN(sum.sl) + ' cái (' + sum.n + ' dòng)? App sẽ thêm ' + sum.n + ' dòng vào sheet NHẬN HÀNG (Kho HN) của file sản xuất, người gọi: ' + S.goiNguoi + '.', { ok: 'Chốt phiếu' }).then(function (ok) {
+    if (!ok) return;
+    call('goiSave', { lines: lines, nguoi: S.goiNguoi }, { text: 'Đang ghi lên file sản xuất…' }).then(function (r) {
+      S.goi = {}; goiSaveCart();
+      toast('Đã chốt phiếu ' + r.phieuId + ': ghi ' + r.soDong + ' dòng (dòng ' + r.rows + ') vào NHẬN HÀNG (Kho HN).');
+      S.goiInfo = null; goiOpen();
+    });
   });
 }
 

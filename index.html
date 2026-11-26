@@ -462,6 +462,7 @@ function call(action, data, opts) {
 }
 
 var ICON = {
+  shelf: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 3v18M20 3v18M4 10h16M4 17h16"/><path d="M8 10V6h4v4M13 17v-4h4v4"/></svg>',
   menu: '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>',
   chev: '<svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
   folder: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>',
@@ -570,6 +571,7 @@ function navBar(active) {
     '<div class="nscroll">' +
     '<div class="ngrp">Công việc</div>' +
     navFolder('fbs', ICON.box, 'Đóng hàng FBS', fbs) +
+    (hhAny() ? navFolder('hh', ICON.shelf, 'Kho GOD Tầng 2', hhNavBody(), '', v === 'hh') : '') +
     (isAdmin() ? '<div class="ngrp">Quản lý</div>' + navFolder('quanly', ICON.gear, 'Cài đặt', navItem(active === 'users', "navGo('users')", ICON.user, 'Tài khoản') +
       navItem(active === 'perms', "navGo('perms')", ICON.gear, 'Phân quyền chức năng')) : '') +
     '</div>' +
@@ -580,7 +582,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'hh' || S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag' ? 'Kho GOD Tầng 2' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -654,6 +656,7 @@ function go(view, arg) {
   if (view === 'import') return viewImport();
   if (view === 'users') return loadUsers();
   if (view === 'perms') return loadPerms();
+  if (view === 'hh') return loadHh(arg);
 }
 
 /* ===================== ĐĂNG NHẬP ===================== */
@@ -1521,9 +1524,10 @@ function loadScanLib() {
   });
   return scanLibP;
 }
-function openScanner() {
+function openScanner(onCode) {
   if (SCAN) return;
-  refreshCodes();   // lấy bảng ghép mã mới nhất (người khác vừa ghép) trong lúc mở camera
+  if (typeof onCode !== 'function') onCode = null;
+  if (!onCode) refreshCodes();   // lấy bảng ghép mã mới nhất (người khác vừa ghép) trong lúc mở camera
   var box = document.createElement('div');
   box.className = 'scanbox'; box.id = 'scanbox';
   box.innerHTML = '<div class="scanhead"><div class="bold">Quét barcode / mã QR</div>' +
@@ -1531,7 +1535,7 @@ function openScanner() {
     '<div id="scanview" class="scanview"></div>' +
     '<div class="scanhint" id="scanhint">Đưa mã vạch vào giữa khung, giữ yên tay…</div>';
   document.body.appendChild(box);
-  SCAN = { qr: null, done: false };
+  SCAN = { qr: null, done: false, onCode: onCode };
   loadScanLib().then(function () {
     if (!SCAN) return;
     var cfg = { fps: 12, qrbox: function (w, h) { var s = Math.min(w, h); return { width: Math.round(Math.min(w * 0.85, 340)), height: Math.round(s * 0.5) }; },
@@ -1592,6 +1596,11 @@ function itemsByCode(code) {
 }
 
 function gotScan(text) {
+  if (SCAN && SCAN.onCode) {   // quét liên tục (nhập kho, kiểm kê): bỏ qua cùng 1 mã lặp lại trong 1,5 giây
+    var c0 = normCode(text), t0 = Date.now();
+    if (!c0 || (c0 === SCAN.last && t0 - SCAN.lastAt < 1500)) return;
+    SCAN.last = c0; SCAN.lastAt = t0; SCAN.onCode(c0); return;
+  }
   if (!SCAN || SCAN.done || !S.bag || !S.detail) return;
   var code = normCode(text);
   var hits = itemsByCode(code);
@@ -1856,7 +1865,7 @@ function recStopped(r, bag) {
   vqSave(job);
   closeRecorder(false);
   if (REC === r) REC = null;
-  if (S.bag === bag && S.view === 'bag') viewBag();
+  if (S.bag === bag) bagRedraw();
   if (r.cut) toast('Quay bị gián đoạn. Phần đã quay vẫn còn, chọn Giữ hoặc Quay lại.', true);
   vqKick();
 }
@@ -1885,7 +1894,7 @@ function gotVideoFile(input) {
       job.parts.push(f); job.size = f.size; job.final = true; job.keep = true; job.status = 'up';
       vqSave(job);
       S.bag.job = job; S.bag.videoId = null;
-      viewBag(); vqKick();
+      bagRedraw(); vqKick();
     });
 }
 
@@ -1895,17 +1904,17 @@ function redoVideo() {
   ask('Quay lại video khác? Video cũ sẽ bị bỏ (tự vào thùng rác Drive khi chốt bao).', { ok: 'Quay lại' }).then(function (ok) {
     if (!ok || S.bag !== b) return;
     if (b.job) { vqDrop(b.job); b.job = null; }
-    b.videoId = null; viewBag();
+    b.videoId = null; bagRedraw();
     if (CAN_RECORD) recordVideo();
   });
 }
 function keepCutVideo() {
   var j = S.bag && S.bag.job; if (!j) return;
-  j.keep = true; j.status = 'up'; vqSave(j); viewBag(); vqKick();
+  j.keep = true; j.status = 'up'; vqSave(j); bagRedraw(); vqKick();
 }
 function redoCutVideo() {
   var b = S.bag; if (!b || !b.job) return;
-  vqDrop(b.job); b.job = null; viewBag();
+  vqDrop(b.job); b.job = null; bagRedraw();
   if (CAN_RECORD) recordVideo(); else $('vfile').click();
 }
 
@@ -2079,10 +2088,10 @@ function vqDone(job, fileId) {
   var b = S.bag;
   if (b && b.job === job) {   // bao đang mở trên màn hình: gắn video ngay
     b.videoId = fileId; b.job = null;
-    if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
+    if (S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag') bagRedraw(); else if (S.view === 'bag' && !editing()) viewBag(); else vqShow(job);
   }
   // bao chưa chốt: giữ bản ghi (có mã file) tới khi chốt bao, lỡ tắt app thì mở lại bao vẫn gắn được video
-  toast('Video bao ' + (job.baoNo || '') + ' đã lưu lên Drive.');
+  toast('Video ' + (/^D/.test(job.bagId || '') ? 'đơn ' : /^H/.test(job.bagId || '') ? 'hoàn ' : 'bao ') + (job.baoNo || '') + ' đã lưu lên Drive.');
 }
 
 /* Khi mở bao (số bao từ máy chủ): gắn video quay dở / đang tải của chính bao này trên máy */
@@ -2091,7 +2100,7 @@ function vqAttach(bag) {
   if (!j) return;
   if (j.fileId) { bag.videoId = j.fileId; vqDrop(j); }
   else { if (j.status === 'rec') { j.status = 'hold'; j.final = true; vqSave(j); } bag.job = j; }
-  if (S.bag === bag && S.view === 'bag') viewBag();
+  if (S.bag === bag) bagRedraw();
 }
 
 /* Mở app: nạp các video còn dở trên máy, tải tiếp */
@@ -2144,7 +2153,7 @@ function vqBar() {
   var j = act.sort(function (a, b) { return a.createdAt - b.createdAt; })[0];
   var bad = act.some(function (x) { return x.err; });
   el.className = 'vqbar' + (bad ? ' bad' : '');
-  el.textContent = (bad ? '⚠️ ' : '⏳ ') + 'Đang tải ' + act.length + ' video · Bao ' + (j.baoNo || '…') + ' ' + pct(j.sent, j.size) + '%' +
+  el.textContent = (bad ? '⚠️ ' : '⏳ ') + 'Đang tải ' + act.length + ' video · ' + (/^D/.test(j.bagId || '') ? 'Đơn ' : /^H/.test(j.bagId || '') ? 'Hoàn ' : 'Bao ') + (j.baoNo || '…') + ' ' + pct(j.sent, j.size) + '%' +
     (bad ? ' · ' + (act.filter(function (x) { return x.err; })[0].err) + ', sẽ tự thử lại' : '');
   el.hidden = false;
 }
@@ -2201,11 +2210,11 @@ function gotPhotos(input) {
     compressImage(f, 1280, 0.75).then(function (dataUrl) {
       var bag = S.bag;
       var p = { thumb: dataUrl, id: null };
-      bag.photos.push(p); viewBag();
+      bag.photos.push(p); bagRedraw();
       return bag.ready.then(function () { return call('uploadPhoto', { bagId: bag.bagId, dataUrl: dataUrl }, { quiet: true }); }).then(function (r) {
-        p.id = r.fileId; if (S.bag === bag) viewBag();
+        p.id = r.fileId; if (S.bag === bag) bagRedraw();
       }).catch(function () {
-        bag.photos.splice(bag.photos.indexOf(p), 1); if (S.bag === bag) viewBag();
+        bag.photos.splice(bag.photos.indexOf(p), 1); if (S.bag === bag) bagRedraw();
       });
     });
   });
@@ -2305,6 +2314,1339 @@ function resetPw(u) {
   ask('Mật khẩu mới cho ' + u + ' (ít nhất 6 ký tự):', { input: true, ok: 'Đổi mật khẩu' }).then(function (p) {
     if (!p) return;
     call('resetPassword', { username: u, password: p }).then(function () { toast('Đã đổi mật khẩu.'); });
+  });
+}
+
+/* ===================== HÀNG HOÁ & TỒN KHO (kho HN) ===================== */
+/* Danh mục đọc từ file sản xuất (sheet DATA SP), chị chọn SKU tổng cần quản lý. Tồn kho do app tự giữ:
+   Nhập kho = quét hàng về (cộng), Kiểm kê = đếm thực tế (đặt lại tồn). Mỗi lần đổi đều có lịch sử. */
+var HH_TABS = [
+  { k: 'ton', t: 'Tồn kho', p: 'hhView' }, { k: 'nhap', t: 'Nhập Kho', p: 'hhNhap' }, { k: 'kiem', t: 'Kiểm Kê', p: 'hhKiemKe' },
+  { k: 'don', t: 'List Đơn Hàng', p: ['hhDon', 'hhDonTai'] }, { k: 'dong', t: 'Đóng hàng', p: 'hhDon' }, { k: 'hoan', t: 'Hàng Hoàn', p: 'hhHoan' },
+  { k: 'chon', t: 'Chọn mã quản lý', p: 'hhSetup' }
+];
+/* Thẻ đang sáng: Lịch sử nằm trong Tồn kho; màn quét đóng hàng / nhận hoàn / bao nhập sáng thẻ của nó */
+function hhOnTab(k) {
+  if (S.view === 'dbag') return k === 'dong';
+  if (S.view === 'hbag') return k === 'hoan';
+  if (S.view === 'nbag') return k === 'nhap';
+  return S.view === 'hh' && (S.hhTab === k || (k === 'ton' && S.hhTab === 'log'));
+}
+function hhCanTab(x) { return [].concat(x.p).some(can); }
+function hhAny() { return HH_TABS.some(hhCanTab); }
+function hhTabsOk() { return HH_TABS.filter(hhCanTab); }
+function navHh(tab) { navOpen(false); hhGoTab(tab); }
+function hhNavBody() {
+  return hhTabsOk().map(function (x) {
+    return navItem(hhOnTab(x.k), "navHh('" + x.k + "')", '', x.t, '', 'sub');
+  }).join('');
+}
+function loadHh(tab) {
+  var ok = hhTabsOk();
+  if (!ok.length) { toast('Tài khoản của bạn chưa được mở chức năng Hàng hoá.', true); return go('lots'); }
+  var okTab = function (k) { return ok.some(function (x) { return x.k === k; }) || (k === 'log' && can('hhView')); };
+  if (!tab || !okTab(tab)) tab = (okTab(S.hhTab) ? S.hhTab : ok[0].k);
+  if (tab === 'dong') return dhPack();
+  S.hhTab = tab;
+  if (tab === 'chon') return hhLoadConfig();
+  if (tab === 'log') return hhLoadLog();
+  if (tab === 'hoan') {
+    if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; if (S.view === 'hh' && S.hhTab === 'hoan' && !editing()) viewHoList(); }).catch(function () {});
+    return hoLoadList();
+  }
+  if (tab === 'nhap') {
+    if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+    return S.nkId ? nkOpen(S.nkId) : nkLoadList();
+  }
+  if (tab === 'don') {
+    if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+    return S.dhLanId ? dhOpen(S.dhLanId) : dhLoadList();
+  }
+  if (S.hh) viewHh();
+  call('hhList', {}, S.hh ? { quiet: true } : { text: 'Đang tải hàng hoá…' }).then(function (r) {
+    S.hh = r; if (S.view === 'hh' && S.hhTab === tab && !editing()) viewHh(true);
+  }).catch(function () {});
+}
+function hhBySku() { var m = {}; ((S.hh && S.hh.items) || []).forEach(function (i) { m[i.sku] = i; }); return m; }
+function hhHead() {
+  var tabs = hhTabsOk().map(function (x) {
+    return '<button type="button" class="tab ' + (hhOnTab(x.k) ? 'on' : '') + '" onclick="hhGoTab(\'' + x.k + '\')">' + x.t + '</button>';
+  }).join('');
+  return '<div class="title">Kho GOD Tầng 2</div><div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>';
+}
+function hhShell(body, keep) {
+  render('<div class="wrap stack">' + hhHead() + body + '</div>' + nav('hh'), keep);
+}
+function hhEmpty() {
+  return '<div class="card stack"><div class="bold">Chưa có mã hàng nào được chọn để quản lý.</div>' +
+    '<div class="muted small">Quản trị vào thẻ "Chọn mã quản lý", dán link file sản xuất rồi tích các SKU tổng cần theo dõi.</div>' +
+    (can('hhSetup') ? '<div><button type="button" class="btn pri" onclick="go(\'hh\',\'chon\')">Chọn mã quản lý</button></div>' : '') + '</div>';
+}
+function viewHh(keep) {
+  if (!S.hh) return hhShell('<div class="card muted">Đang tải…</div>', keep);
+  if (!S.hh.items.length) return hhShell(hhEmpty(), keep);
+  if (S.hhTab === 'nhap') return S.nkId && S.nkCur ? viewNk(keep) : viewNkList();
+  if (S.hhTab === 'don') return S.dhLanId && S.dhCur ? viewDhLan(keep) : viewDhList();
+  if (S.hhTab === 'kiem') return viewHhPhieu(keep);
+  if (S.hhTab === 'hoan') return viewHoList(keep);
+  return viewHhTon(keep);
+}
+
+/* ---------- Tồn kho ---------- */
+function fmtN(n) { return Number(n || 0).toLocaleString('vi-VN'); }
+function hhTonModes() {
+  var m = S.tonMode || 'ma';
+  return '<div class="tabs" style="flex-wrap:wrap">' + [['ma', 'Theo mã hàng'], ['xuong', 'Theo xưởng']].concat(can('hhGoi') ? [['goi', '📦 Gọi hàng về kho']] : []).map(function (t) {
+    return '<button type="button" class="tab ' + (m === t[0] ? 'on' : '') + '" onclick="hhTonMode(\'' + t[0] + '\')">' + t[1] + '</button>';
+  }).join('') + '</div>';
+}
+function hhTonMode(m) { S.tonMode = m; if (m === 'goi') return goiOpen(); viewHhTon(); }
+function viewHhTon(keep) {
+  if (S.tonMode === 'xuong') return viewHxTon(keep);
+  if (S.tonMode === 'goi' && can('hhGoi')) return S.goiInfo ? viewGoi(keep) : goiOpen();
+  var it = S.hh.items, tk = 0, tx = 0, sx = 0, tl = 0;
+  it.forEach(function (i) { tk += i.tonKho; tx += i.tonXuong; sx += i.dangSx; tl += i.tonLoi || 0; });
+  var body = hhTonModes() + '<div class="card stack">' +
+    '<div class="row wrapflex" style="gap:8px"><span class="chip soft">' + it.length + ' mã lẻ</span><span class="chip ok">Tồn kho ' + fmtN(tk) + '</span>' +
+    '<span class="chip warn">Tồn xưởng ' + fmtN(tx) + '</span><span class="chip soft">Đang SX ' + fmtN(sx) + '</span>' + (tl ? '<span class="chip bad">Hàng lỗi ' + fmtN(tl) + '</span>' : '') + '</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="hhFilter()" value="' + esc(S.hhQ || '') + '">' +
+    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật tồn xưởng</button>' +
+    '<button type="button" class="btn sm" onclick="hhGoTab(\'log\')">🕘 Xem lịch sử</button></div>' +
+    '<div class="muted small">Tồn kho: app tự cộng trừ (nhập kho, kiểm kê). Tồn xưởng và Đang SX lấy từ file sản xuất' + (S.hh.syncAt ? ', cập nhật lúc ' + esc(S.hh.syncAt) : '') + '.</div>' +
+    '<div class="tablebox"><table class="t" style="min-width:620px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Tồn kho</th><th class="num">Hàng lỗi</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th></tr></thead>' +
+    '<tbody id="hhtb">' + hhTonRows() + '</tbody></table></div></div>';
+  hhShell(body, keep);
+}
+function hhTonRows() {
+  var q = foldQ(S.hhQ || ''), g = {}, order = [];
+  S.hh.items.forEach(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return;
+    if (!g[i.skuTong]) { g[i.skuTong] = []; order.push(i.skuTong); }
+    g[i.skuTong].push(i);
+  });
+  if (!order.length) return '<tr><td colspan="6" class="muted">Không có mã nào khớp.</td></tr>';
+  return order.map(function (k) {
+    var l = g[k], a = 0, b = 0, c = 0, e = 0;
+    l.forEach(function (i) { a += i.tonKho; b += i.tonXuong; c += i.dangSx; e += i.tonLoi || 0; });
+    return '<tr style="background:var(--soft)"><td colspan="2"><b>' + esc(k) + '</b> <span class="muted small">' + esc(l[0].tenTem || l[0].ten) + '</span></td>' +
+      '<td class="num bold">' + fmtN(a) + '</td><td class="num bold"' + (e ? ' style="color:var(--bad)"' : '') + '>' + (e ? fmtN(e) : '') + '</td><td class="num bold">' + fmtN(b) + '</td><td class="num bold">' + fmtN(c) + '</td></tr>' +
+      l.map(function (i) {
+        return '<tr><td>' + esc(i.sku) + '</td><td>' + esc(i.phanLoai) + '</td><td class="num bold"' + (i.tonKho < 0 ? ' style="color:var(--bad)"' : '') + '>' + fmtN(i.tonKho) + '</td>' +
+          '<td class="num"' + (i.tonLoi ? ' style="color:var(--bad)"' : '') + '>' + (i.tonLoi ? fmtN(i.tonLoi) : '') + '</td>' +
+          '<td class="num">' + fmtN(i.tonXuong) + '</td><td class="num">' + fmtN(i.dangSx) + '</td></tr>';
+      }).join('');
+  }).join('');
+}
+function hhFilter() { S.hhQ = $('hhq').value; $('hhtb').innerHTML = hhTonRows(); }
+function hhSync() {
+  call('hhSync', {}, { text: 'Đang đọc file sản xuất…' }).then(function (r) {
+    S.hh.items = r.items; S.hh.syncAt = r.syncAt; S.hh.xuong = r.xuong; S.hh.nhanTen = r.nhanTen;
+    toast('Đã cập nhật tồn xưởng' + (r.added ? ', thêm ' + r.added + ' mã lẻ mới' : '') + '.' + (r.xuongErr ? ' Chưa đọc được tồn từng xưởng: ' + r.xuongErr : ''), !!r.xuongErr);
+    viewHh(true);
+  });
+}
+
+/* ---------- Phiếu nhập kho / kiểm kê (quét hoặc gõ mã) ---------- */
+function hhLoai() { return S.hhTab === 'kiem' ? 'kiemKe' : 'nhap'; }
+function hhDraftKey(loai) { return 'godfbs_hh_' + loai + '_' + (S.user ? S.user.username : ''); }
+function hhDraft() {
+  var loai = hhLoai();
+  S.hhDraft = S.hhDraft || {};
+  if (!S.hhDraft[loai]) {
+    var d = null; try { d = JSON.parse(load(hhDraftKey(loai)) || 'null'); } catch (e) { d = null; }
+    S.hhDraft[loai] = d && d.order ? d : { order: [], sl: {}, ghiChu: '' };
+  }
+  return S.hhDraft[loai];
+}
+function hhSaveDraft() { var loai = hhLoai(); store(hhDraftKey(loai), JSON.stringify(S.hhDraft[loai])); }
+function viewHhPhieu(keep) {
+  var kiem = hhLoai() === 'kiemKe', d = hhDraft();
+  var intro = kiem
+    ? 'Đếm hàng thực tế rồi quét (mỗi lần quét +1) hoặc gõ số. Khi chốt, tồn kho của các mã trong phiếu được đặt lại đúng bằng số đếm. Mã không có trong phiếu giữ nguyên.'
+    : 'Quét mã SKU từng món hàng về kho (mỗi lần quét +1), hoặc gõ mã rồi sửa số lượng. Chốt phiếu thì tồn kho cộng thêm.';
+  var body = '<div class="card stack"><div class="muted small">' + intro + '</div>' +
+    '<div class="row" style="gap:8px"><input class="in grow" id="hhcode" autocomplete="off" autocapitalize="characters" placeholder="Quét hoặc gõ mã SKU rồi Enter" ' +
+    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();hhAddCode(this.value);this.value=\'\'}">' +
+    (CAN_SCAN ? '<button type="button" class="btn sm" onclick="hhCam()" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+    (kiem ? '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn sm" onclick="hhKiemAll()">Gõ số cho tất cả mã</button><span class="muted small">Dùng khi nhập tồn đầu kỳ: hiện mọi mã kèm số tồn hiện tại để sửa.</span></div>' : '') +
+    '<div id="hhlines" class="stack">' + hhLines() + '</div>' +
+    '<label class="f">Ghi chú phiếu<input class="in" id="hhnote" maxlength="300" placeholder="' + (kiem ? 'Ví dụ: Tồn đầu kỳ 22/11, kiểm kê cuối tháng…' : 'Ví dụ: Toa hàng xưởng X03 ngày 22/11') + '" value="' + esc(d.ghiChu || '') + '" oninput="hhDraft().ghiChu=this.value;hhSaveDraft()"></label>' +
+    '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn pri" id="hhgo" onclick="hhSubmit()">' + hhBtnText() + '</button>' +
+    '<button type="button" class="btn" onclick="hhClear()">Xoá phiếu</button></div></div>';
+  hhShell(body, keep);
+  setTimeout(function () { var c = $('hhcode'); if (c && !('ontouchstart' in window)) c.focus(); }, 30);
+}
+function hhBtnText() {
+  var d = hhDraft(), n = 0;
+  d.order.forEach(function (s) { n += Number(d.sl[s]) || 0; });
+  return (hhLoai() === 'kiemKe' ? 'Chốt kiểm kê' : 'Chốt nhập kho') + ' (' + d.order.length + ' mã, ' + fmtN(n) + ' cái)';
+}
+function hhLines() {
+  var d = hhDraft(), by = hhBySku(), kiem = hhLoai() === 'kiemKe';
+  if (!d.order.length) return '<div class="muted small">Chưa có món nào trong phiếu.</div>';
+  return d.order.slice().reverse().map(function (s) {
+    var i = by[s] || {}, v = d.sl[s], diff = kiem ? (Number(v) || 0) - (i.tonKho || 0) : 0;
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px" data-sku="' + esc(s) + '"><div style="flex:1 1 170px;min-width:0">' +
+      '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div>' +
+      '<div class="small">Tồn app: <b>' + fmtN(i.tonKho) + '</b>' + (kiem ? ' · Lệch: <b style="color:' + (diff ? 'var(--bad)' : 'var(--ok)') + '">' + (diff > 0 ? '+' : '') + fmtN(diff) + '</b>' : ' → sau nhập: <b>' + fmtN((i.tonKho || 0) + (Number(v) || 0)) + '</b>') + '</div></div>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="hhStep(this,-1)">−</button>' +
+      '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(v) + '" onchange="hhSet(this)">' +
+      '<button type="button" class="btn sm" onclick="hhStep(this,1)">+</button>' +
+      '<button type="button" class="btn sm" title="Bỏ khỏi phiếu" onclick="hhDel(this)">✕</button></div></div>';
+  }).join('');
+}
+function hhRedraw() { $('hhlines').innerHTML = hhLines(); $('hhgo').textContent = hhBtnText(); hhSaveDraft(); }
+function hhSkuOf(el) { return el.closest('[data-sku]').getAttribute('data-sku'); }
+function hhStep(el, n) { var d = hhDraft(), s = hhSkuOf(el); d.sl[s] = Math.max(0, (Number(d.sl[s]) || 0) + n); hhRedraw(); }
+function hhSet(el) { var d = hhDraft(), s = hhSkuOf(el), v = Math.round(Number(el.value)); d.sl[s] = isFinite(v) && v >= 0 ? v : 0; hhRedraw(); }
+function hhDel(el) { var d = hhDraft(), s = hhSkuOf(el); d.order = d.order.filter(function (x) { return x !== s; }); delete d.sl[s]; hhRedraw(); }
+function hhFind(code) {
+  code = normCode(code); if (!code) return null;
+  var by = hhBySku(); if (by[code]) return by[code];
+  var hits = S.hh.items.filter(function (i) { return i.sku.indexOf(code) >= 0; });
+  return hits.length === 1 ? hits[0] : null;
+}
+function hhAddCode(code) {
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code);
+  var hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([60, 60, 60]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return;
+  }
+  var d = hhDraft();
+  if (d.order.indexOf(it.sku) < 0) { d.order.push(it.sku); d.sl[it.sku] = 0; }
+  else { d.order = d.order.filter(function (x) { return x !== it.sku; }); d.order.push(it.sku); }
+  d.sl[it.sku] = (Number(d.sl[it.sku]) || 0) + 1;
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  if (hint) hint.innerHTML = 'Đã quét <b>' + esc(it.sku) + '</b> → ' + d.sl[it.sku] + ' cái. Quét món tiếp theo…';
+  if ($('hhlines')) hhRedraw(); else hhSaveDraft();
+}
+function hhCam() { openScanner(hhAddCode); }
+function hhKiemAll() {
+  var d = hhDraft();
+  S.hh.items.forEach(function (i) { if (d.order.indexOf(i.sku) < 0) { d.order.unshift(i.sku); d.sl[i.sku] = i.tonKho; } });
+  hhRedraw();
+}
+function hhClear() {
+  ask('Xoá hết các món trong phiếu này? (Chưa chốt nên tồn kho không đổi.)', { ok: 'Xoá phiếu', danger: true }).then(function (ok) {
+    if (!ok) return;
+    S.hhDraft[hhLoai()] = { order: [], sl: {}, ghiChu: '' }; hhSaveDraft(); viewHh(true);
+  });
+}
+function hhSubmit() {
+  var loai = hhLoai(), d = hhDraft(), by = hhBySku();
+  var lines = d.order.map(function (s) { return { sku: s, sl: Number(d.sl[s]) || 0 }; });
+  if (loai === 'nhap') lines = lines.filter(function (l) { return l.sl > 0; });
+  if (!lines.length) return toast('Phiếu chưa có món nào.', true);
+  var msg;
+  if (loai === 'nhap') {
+    var n = 0; lines.forEach(function (l) { n += l.sl; });
+    msg = 'Chốt nhập kho ' + lines.length + ' mã, tổng ' + fmtN(n) + ' cái? Tồn kho sẽ cộng thêm.';
+  } else {
+    var lech = lines.filter(function (l) { return l.sl !== ((by[l.sku] || {}).tonKho || 0); });
+    if (!lech.length) return toast('Số đếm khớp hết với tồn app, không có gì cần sửa.');
+    msg = 'Chốt kiểm kê: ' + lech.length + ' mã bị lệch sẽ được đặt lại tồn đúng bằng số đếm.\n\n' +
+      lech.slice(0, 8).map(function (l) { return l.sku + ': ' + fmtN((by[l.sku] || {}).tonKho) + ' → ' + fmtN(l.sl); }).join('\n') + (lech.length > 8 ? '\n…' : '');
+    lines = lech;
+  }
+  ask(msg, { ok: 'Chốt phiếu' }).then(function (ok) {
+    if (!ok) return;
+    call('hhAdjust', { loai: loai, lines: lines, ghiChu: d.ghiChu || '' }, { text: 'Đang ghi phiếu…' }).then(function (r) {
+      S.hh.items = r.items;
+      S.hhDraft[loai] = { order: [], sl: {}, ghiChu: '' }; hhSaveDraft();
+      toast('Đã chốt phiếu ' + r.phieu + ' (' + r.changed + ' mã).');
+      viewHh(true);
+    });
+  });
+}
+
+/* ---------- Lịch sử ---------- */
+function hhLoadLog() {
+  hhShell('<div class="card muted">Đang tải lịch sử…</div>');
+  call('hhLog', { sku: S.hhLogQ || '' }, { quiet: true }).then(function (r) { S.hhLog = r; if (S.view === 'hh' && S.hhTab === 'log') viewHhLog(); });
+}
+function viewHhLog() {
+  var rows = (S.hhLog || []).map(function (l) {
+    return '<tr><td style="white-space:nowrap">' + esc(l.time) + '</td><td>' + esc(l.user) + '</td><td>' + esc(l.loaiTen) + '</td><td>' + esc(l.sku) + '</td>' +
+      '<td class="num bold" style="color:' + (l.sl < 0 ? 'var(--bad)' : 'var(--ok)') + '">' + (l.sl > 0 ? '+' : '') + fmtN(l.sl) + '</td>' +
+      '<td class="num">' + fmtN(l.tonTruoc) + ' → <b>' + fmtN(l.tonSau) + '</b></td><td>' + esc(l.ghiChu) + '<div class="muted small">' + esc(l.phieu) + '</div></td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">Chưa có lịch sử.</td></tr>';
+  hhShell('<div class="card stack"><div class="row between"><button type="button" class="btn sm" onclick="hhGoTab(\'ton\')">← Tồn kho</button><div class="bold">Lịch sử tồn kho</div></div>' +
+    '<div class="row" style="gap:8px"><input class="in grow" id="hhlq" placeholder="Lọc theo mã SKU" value="' + esc(S.hhLogQ || '') + '" ' +
+    'onkeydown="if(event.key===\'Enter\'){S.hhLogQ=this.value;hhLoadLog()}"><button type="button" class="btn sm" onclick="S.hhLogQ=$(\'hhlq\').value;hhLoadLog()">Lọc</button></div>' +
+    '<div class="muted small">500 lần thay đổi gần nhất.</div>' +
+    '<div class="tablebox"><table class="t" style="min-width:760px"><thead><tr><th>Thời gian</th><th>Người làm</th><th>Loại</th><th>Mã SKU</th><th class="num">Số lượng</th><th class="num">Tồn</th><th>Ghi chú / Phiếu</th></tr></thead><tbody>' +
+    rows + '</tbody></table></div></div>');
+}
+
+/* ---------- Chọn mã quản lý (quản trị) ---------- */
+function hhLoadConfig() {
+  hhShell('<div class="card muted">Đang tải…</div>');
+  call('hhConfig', {}, { quiet: true }).then(function (c) {
+    S.hhConf = c; S.hhSel = {}; (c.tong || []).forEach(function (t) { S.hhSel[t] = 1; });
+    if (S.hhCat && S.hhCat.srcId && c.srcUrl.indexOf(S.hhCat.srcId) < 0) S.hhCat = null;
+    viewHhChon();
+  });
+}
+function viewHhChon() {
+  var c = S.hhConf || {}, cat = S.hhCat;
+  var body = '<div class="card stack"><div class="bold">File sản xuất</div>' +
+    '<div class="muted small">App chỉ đọc sheet "DATA SP" (mã, tên, phân loại, nhóm, tồn xưởng, đang sản xuất), không đọc cột giá và không sửa gì trong file.</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhurl" placeholder="Dán link Google Sheet file sản xuất" value="' + esc((cat && cat.url) || c.srcUrl || '') + '">' +
+    '<button type="button" class="btn pri" onclick="hhReadCat()">Đọc danh mục</button></div>' +
+    (cat ? '<div class="small">Đã đọc <b>' + esc(cat.title) + '</b>: ' + cat.tong.length + ' SKU tổng.' + (cat.dup && cat.dup.length ? ' <span class="chip warn">Mã lẻ bị trùng trong file: ' + esc(cat.dup.join(', ')) + '</span>' : '') + '</div>' : '') + '</div>';
+  if (cat) {
+    var nhoms = {}; cat.tong.forEach(function (t) { (t.nhom || '').split(',').forEach(function (x) { x = x.trim(); if (x) nhoms[x] = 1; }); });
+    body += '<div class="card stack"><div class="row wrapflex" style="gap:8px"><input class="in grow" id="hhcq" placeholder="Tìm SKU tổng hoặc tên" oninput="hhCatDraw()">' +
+      '<select class="in" id="hhcn" style="width:auto" onchange="hhCatDraw()"><option value="">Mọi nhóm</option>' + Object.keys(nhoms).map(function (n) { return '<option>' + esc(n) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="row wrapflex" style="gap:14px"><label class="small"><input type="checkbox" id="hhchn" checked onchange="hhCatDraw()"> Chỉ hàng có kho Hà Nội</label>' +
+      '<label class="small"><input type="checkbox" id="hhcsel" onchange="hhCatDraw()"> Chỉ mã đã chọn</label></div>' +
+      '<div class="tablebox"><table class="t" style="min-width:620px"><thead><tr><th style="width:44px"></th><th>SKU tổng</th><th>Tên</th><th>Nhóm</th><th class="num">Mã lẻ</th><th class="num">Tồn xưởng</th></tr></thead><tbody id="hhctb"></tbody></table></div>' +
+      '<div class="row wrapflex" style="gap:8px"><button type="button" class="btn pri" id="hhcsave" onclick="hhSaveSel()"></button>' +
+      '<span class="muted small">Bỏ chọn một mã thì mã đó ẩn khỏi danh sách, số tồn và lịch sử vẫn được giữ.</span></div></div>';
+  }
+  hhShell(body);
+  if (cat) hhCatDraw();
+}
+function hhReadCat() {
+  var url = $('hhurl').value.trim();
+  if (!url) return toast('Dán link file sản xuất trước nhé.', true);
+  call('hhCatalog', { url: url }, { text: 'Đang đọc file sản xuất…' }).then(function (r) {
+    r.url = url; S.hhCat = r;
+    if (!S.hhSel || !Object.keys(S.hhSel).length) { S.hhSel = {}; (r.chosen || []).forEach(function (t) { S.hhSel[t] = 1; }); }
+    viewHhChon();
+  });
+}
+function hhCatDraw() {
+  var q = foldQ($('hhcq').value), n = $('hhcn').value, hn = $('hhchn').checked, only = $('hhcsel').checked;
+  var list = S.hhCat.tong.filter(function (t) {
+    if (only && !S.hhSel[t.skuTong]) return false;
+    if (hn && !S.hhSel[t.skuTong] && foldQ(t.kho).indexOf('ha noi') < 0) return false;
+    if (n && (t.nhom || '').indexOf(n) < 0) return false;
+    return !q || foldQ(t.skuTong + ' ' + t.ten).indexOf(q) >= 0;
+  });
+  $('hhctb').innerHTML = list.map(function (t) {
+    return '<tr><td><input type="checkbox" style="width:20px;height:20px;accent-color:var(--pri)" data-t="' + esc(t.skuTong) + '"' + (S.hhSel[t.skuTong] ? ' checked' : '') + ' onchange="hhTick(this)"></td>' +
+      '<td class="bold">' + esc(t.skuTong) + '</td><td>' + esc(t.ten) + '<div class="muted small">' + esc(t.kho) + '</div></td><td class="small">' + esc(t.nhom) + '</td>' +
+      '<td class="num">' + t.count + '</td><td class="num">' + fmtN(t.tonXuong) + '</td></tr>';
+  }).join('') || '<tr><td colspan="6" class="muted">Không có mã nào khớp.</td></tr>';
+  hhSelBtn();
+}
+function hhTick(el) { var t = el.getAttribute('data-t'); if (el.checked) S.hhSel[t] = 1; else delete S.hhSel[t]; hhSelBtn(); }
+function hhSelBtn() {
+  var n = Object.keys(S.hhSel).length, m = 0;
+  S.hhCat.tong.forEach(function (t) { if (S.hhSel[t.skuTong]) m += t.count; });
+  $('hhcsave').textContent = 'Lưu lựa chọn (' + n + ' SKU tổng, ' + m + ' mã lẻ)';
+}
+function hhSaveSel() {
+  var tong = Object.keys(S.hhSel);
+  ask('Lưu ' + tong.length + ' SKU tổng làm danh sách hàng quản lý ở kho HN? App sẽ đọc lại file sản xuất để lấy các mã lẻ.', { ok: 'Lưu' }).then(function (ok) {
+    if (!ok) return;
+    call('hhSaveSelection', { url: S.hhCat.url, tong: tong }, { text: 'Đang lưu và đọc file sản xuất…' }).then(function (r) {
+      S.hh = { items: r.items, syncAt: r.syncAt, hasSrc: true, tongCount: tong.length };
+      toast('Đã lưu. Đang quản lý ' + r.items.length + ' mã lẻ' + (r.added ? ' (thêm mới ' + r.added + ')' : '') + '.');
+      go('hh', 'ton');
+    });
+  });
+}
+
+/* ---------- Nhập kho theo phiếu + bao ----------
+   Phiếu = 1 lần hàng về (chụp ảnh phiếu xuất kho của xưởng). Mỗi bao: quay video bóc hàng → chọn mã + số lượng → chốt bao (cộng tồn ngay).
+   Quay / tải video dùng chung cách đóng bao FBS (vừa quay vừa tải, tắt app không mất). */
+function hhGoTab(k) {
+  if (k === 'nhap') S.nkId = null; if (k === 'don') S.dhLanId = null;
+  if (k === 'dong') { if (REC) return toast('Đang quay video, dừng quay trước nhé.', true); return dhPack(); }
+  if (k === 'hoan' && S.view === 'hbag' && REC) return toast('Đang quay video, dừng quay trước nhé.', true);
+  if (S.bag && S.bag.kind === 'hoan') {   // giữ kiện hoàn đang nhận dở
+    if (k !== 'hoan') return toast('Đang nhận dở kiện hoàn ' + S.bag.baoNo + ': bấm Chốt hoàn hoặc Bỏ kiện này trước.', true);
+    S.view = 'hh'; return loadHh(k);
+  }
+  go('hh', k);
+}
+function nkThumbs() { S.nkThumb = S.nkThumb || {}; return S.nkThumb; }
+function nkLoadList() {
+  if (S.nkList) viewNkList(); else hhShell('<div class="card muted">Đang tải phiếu nhập…</div>');
+  call('nkList', {}, { quiet: true }).then(function (l) { S.nkList = l; if (S.view === 'hh' && S.hhTab === 'nhap' && !S.nkId && !editing()) viewNkList(); });
+}
+function viewNkList() {
+  var rows = (S.nkList || []).map(function (p) {
+    return '<button type="button" class="card lotcard" onclick="nkOpen(\'' + esc(p.phieuId) + '\')">' +
+      '<div class="row between"><div class="bold">' + esc(p.ma) + '</div>' + (p.status === 'done' ? '<span class="chip ok">Đã xong</span>' : '<span class="chip warn">Đang nhập</span>') + '</div>' +
+      '<div class="small">' + esc(p.xuong || 'Chưa ghi xưởng') + (p.ghiChu ? ' · ' + esc(p.ghiChu) : '') + '</div>' +
+      '<div class="muted small">' + esc(p.createdAt) + ' · ' + esc(p.user) + ' · ' + p.photoCount + ' ảnh phiếu · ' + p.bagCount + ' bao · ' + fmtN(p.sl) + ' cái</div></button>';
+  }).join('') || '<div class="card muted">Chưa có phiếu nhập nào.</div>';
+  var add = can('hhNhap') ? '<div class="card stack"><div class="bold">Hàng về kho: tạo phiếu nhập mới</div>' +
+    '<div class="grid2"><label class="f">Xưởng / nguồn hàng<input class="in" id="nkx" maxlength="100" placeholder="Ví dụ: X03"></label>' +
+    '<label class="f">Ghi chú<input class="in" id="nkg" maxlength="300" placeholder="Không bắt buộc"></label></div>' +
+    '<div><button type="button" class="btn pri" onclick="nkCreate()">＋ Tạo phiếu nhập</button></div></div>' : '';
+  hhShell(add + rows);
+}
+function nkCreate() {
+  call('nkCreate', { xuong: $('nkx').value, ghiChu: $('nkg').value }, { text: 'Đang tạo phiếu…' }).then(function (d) {
+    S.nkList = null; S.nkId = d.phieu.phieuId; S.nkCur = d; viewNk();
+    toast('Đã tạo phiếu ' + d.phieu.ma + '. Chụp ảnh phiếu xuất kho rồi bắt đầu bóc bao nhé.');
+  });
+}
+function nkOpen(id) {
+  S.nkId = id;
+  if (S.nkCur && S.nkCur.phieu.phieuId === id) viewNk(); else hhShell('<div class="card muted">Đang tải phiếu…</div>');
+  call('nkGet', { phieuId: id }, { quiet: true }).then(function (d) { S.nkCur = d; if (S.view === 'hh' && S.nkId === id && !editing()) viewNk(true); });
+}
+function nkPhotoHtml(ids, delFn) {
+  var th = nkThumbs();
+  return ids.map(function (id, n) {
+    var img = th[id] ? '<img src="' + th[id] + '" alt="Ảnh ' + (n + 1) + '">' : '<div class="nothumb">Ảnh ' + (n + 1) + '</div>';
+    return '<div style="position:relative"><a href="https://drive.google.com/file/d/' + esc(id) + '/view" target="_blank" rel="noopener">' + img + '</a>' +
+      (delFn ? '<button type="button" class="delph" aria-label="Xoá ảnh" onclick="' + delFn + '(\'' + esc(id) + '\')">✕</button>' : '') + '</div>';
+  }).join('');
+}
+function viewNk(keep) {
+  var d = S.nkCur, p = d.phieu, open = p.status !== 'done', edit = open && can('hhNhap');
+  var done = d.bags.filter(function (b) { return b.status === 'done'; });
+  var mine = d.bags.filter(function (b) { return b.status === 'draft'; })[0];
+  var tot = {}, order = [], all = 0;
+  done.forEach(function (b) { b.lines.forEach(function (l) { if (!(l.sku in tot)) { tot[l.sku] = 0; order.push(l.sku); } tot[l.sku] += Number(l.sl) || 0; all += Number(l.sl) || 0; }); });
+  var up = (S.nkUp || []).filter(function (x) { return x.phieuId === p.phieuId; });
+  var bags = done.map(function (b) {
+    var n = 0; b.lines.forEach(function (l) { n += Number(l.sl) || 0; });
+    var vid = b.videoId === 'pending' ? '<span class="chip warn">Video đang tải</span>' : (b.videoId ? '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(b.videoId) + '/view" target="_blank" rel="noopener">Xem video</a>' : '');
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div class="bold">Bao ' + String(b.baoNo).padStart(2, '0') + ' · ' + b.lines.length + ' mã · ' + fmtN(n) + ' cái</div>' +
+      '<div class="row" style="gap:6px">' + vid + (can('hhKiemKe') ? '<button type="button" class="btn sm danger" onclick="nkDelBag(\'' + esc(b.bagId) + '\',' + b.baoNo + ')">Xoá bao</button>' : '') + '</div></div>' +
+      '<div class="small">' + b.lines.map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + '</div>' +
+      '<div class="muted small">' + esc(b.user) + ' · ' + esc(b.createdAt) + (b.photoIds.length ? ' · ' + b.photoIds.length + ' ảnh' : '') + '</div></div>';
+  }).join('') || '<div class="muted small">Chưa chốt bao nào.</div>';
+  var body = '<div class="row"><button type="button" class="iconbtn" aria-label="Về danh sách phiếu" onclick="S.nkId=null;nkLoadList()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Phiếu nhập kho</div><div class="title" style="font-size:20px">' + esc(p.ma) + '</div></div>' +
+    (open ? '<span class="chip warn">Đang nhập</span>' : '<span class="chip ok">Đã xong</span>') + '</div>' +
+    '<div class="muted small">Tạo bởi ' + esc(p.user) + ' lúc ' + esc(p.createdAt) + (p.folderUrl && can('hhView') ? ' · <a href="' + esc(p.folderUrl) + '" target="_blank" rel="noopener">Thư mục Drive</a>' : '') + '</div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Ảnh phiếu xuất kho</h3>' +
+    '<div class="thumbs">' + nkPhotoHtml(p.photoIds, edit ? 'nkDelPhoto' : '') +
+    up.map(function (x) { return '<div><img src="' + x.thumb + '" alt="Đang tải"><div class="small muted center">đang tải…</div></div>'; }).join('') +
+    (edit ? '<button type="button" class="add" aria-label="Chụp ảnh phiếu" onclick="$(\'nkpf\').click()">' + ICON.cam + '</button>' : '') + '</div>' +
+    (edit ? '<div class="grid2"><label class="f">Xưởng / nguồn hàng<input class="in" maxlength="100" value="' + esc(p.xuong) + '" onchange="nkSaveInfo(\'xuong\',this.value)"></label>' +
+      '<label class="f">Ghi chú<input class="in" maxlength="300" value="' + esc(p.ghiChu) + '" onchange="nkSaveInfo(\'ghiChu\',this.value)"></label></div>'
+      : '<div class="small">Xưởng: <b>' + esc(p.xuong || '—') + '</b>' + (p.ghiChu ? ' · ' + esc(p.ghiChu) : '') + '</div>') + '</div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Bao hàng (' + done.length + ' bao · ' + fmtN(all) + ' cái)</h3>' +
+    (edit ? (mine ? '<button type="button" class="btn pri block" onclick="nkNewBag()">Làm tiếp bao số ' + mine.baoNo + ' (đang dở)</button>'
+      : '<button type="button" class="btn pri block" onclick="nkNewBag()">＋ Bóc bao mới</button>') : '') + bags + '</div>' +
+    (order.length ? '<div class="card stack"><h3 style="margin:0">Tổng nhập theo mã</h3><div class="tablebox"><table class="t" style="min-width:0"><thead><tr><th>Mã SKU</th><th class="num">Số lượng</th></tr></thead><tbody>' +
+      order.map(function (s) { return '<tr><td>' + esc(s) + '</td><td class="num bold">' + fmtN(tot[s]) + '</td></tr>'; }).join('') + '</tbody></table></div></div>' : '') +
+    (can('hhNhap') ? '<div class="row wrapflex">' + (open ? '<button type="button" class="btn" onclick="nkStatus(\'done\')">✓ Hoàn tất phiếu</button>' : '<button type="button" class="btn" onclick="nkStatus(\'open\')">Mở lại phiếu</button>') + '</div>' : '') +
+    '<input type="file" id="nkpf" accept="image/*" capture="environment" multiple hidden onchange="nkGotPhotos(this)">';
+  hhShell(body, keep);
+}
+function nkSaveInfo(k, v) {
+  var o = { phieuId: S.nkId }; o[k] = v;
+  call('nkUpdate', o, { quiet: true }).then(function (d) { S.nkCur = d; S.nkList = null; toast('Đã lưu.'); });
+}
+function nkStatus(st) {
+  ask(st === 'done' ? 'Hoàn tất phiếu nhập này? Sau đó không thêm bao được (mở lại khi cần).' : 'Mở lại phiếu để bóc thêm bao?', { ok: st === 'done' ? 'Hoàn tất' : 'Mở lại' }).then(function (ok) {
+    if (!ok) return;
+    call('nkUpdate', { phieuId: S.nkId, status: st }, { text: 'Đang lưu…' }).then(function (d) { S.nkCur = d; S.nkList = null; viewNk(true); });
+  });
+}
+function nkGotPhotos(input) {
+  var files = Array.prototype.slice.call(input.files || []); input.value = '';
+  var pid = S.nkId;
+  S.nkUp = S.nkUp || [];
+  files.forEach(function (f) {
+    compressImage(f, 1600, 0.8).then(function (dataUrl) {
+      var x = { phieuId: pid, thumb: dataUrl }; S.nkUp.push(x);
+      if (S.nkId === pid && S.view === 'hh') viewNk(true);
+      return call('uploadPhoto', { bagId: pid, dataUrl: dataUrl }, { quiet: true }).then(function (r) {
+        nkThumbs()[r.fileId] = dataUrl;
+        if (S.nkCur && S.nkCur.phieu.phieuId === pid) S.nkCur.phieu.photoIds = r.photoIds;
+      }).catch(function () { toast('Một ảnh phiếu chưa tải lên được, chụp lại nhé.', true); })
+        .then(function () { S.nkUp.splice(S.nkUp.indexOf(x), 1); S.nkList = null; if (S.nkId === pid && S.view === 'hh') viewNk(true); });
+    });
+  });
+}
+function nkDelPhoto(id) {
+  ask('Xoá ảnh phiếu này? Ảnh sẽ vào thùng rác Drive.', { ok: 'Xoá ảnh', danger: true }).then(function (ok) {
+    if (!ok) return;
+    var keep = S.nkCur.phieu.photoIds.filter(function (x) { return x !== id; });
+    call('nkUpdate', { phieuId: S.nkId, photoIds: keep }, { text: 'Đang xoá…' }).then(function (d) { S.nkCur = d; viewNk(true); });
+  });
+}
+function nkDelBag(bagId, no) {
+  ask('Xoá bao số ' + no + '? Tồn kho sẽ bị trừ lại đúng số đã nhập của bao này, video và ảnh vào thùng rác. Ghi lý do:', { input: true, ok: 'Xoá bao' }).then(function (ly) {
+    if (ly === null) return;
+    call('nkDeleteBag', { bagId: bagId, lyDo: ly }, { text: 'Đang xoá bao…' }).then(function (r) {
+      S.nkCur = r.detail; if (S.hh) S.hh.items = r.items; S.nkList = null; toast('Đã xoá bao ' + no + ', tồn kho đã trừ lại.'); viewNk(true);
+    });
+  });
+}
+
+/* ----- Bao nhập: video bóc hàng → mã + số lượng → chốt ----- */
+function nkNewBag() {
+  if (!S.hh || !S.hh.items.length) return toast('Chưa có mã hàng nào được chọn để quản lý (thẻ Chọn mã quản lý).', true);
+  var pid = S.nkId, ma = S.nkCur.phieu.ma;
+  var bag = { kind: 'nk', phieuId: pid, ma: ma, bagId: null, baoNo: null, job: null, videoId: null, photos: [], lines: { order: [], sl: {} } };
+  bag.ready = call('nkStartBag', { phieuId: pid }, { quiet: true, silent: true }).then(function (r) {
+    bag.bagId = r.bagId; bag.baoNo = r.baoNo;
+    if (bag.job) { bag.job.bagId = r.bagId; bag.job.baoNo = r.baoNo; }
+    var saved = null; try { saved = JSON.parse(load('godfbs_nb_' + r.bagId) || 'null'); } catch (e) { saved = null; }
+    if (saved && saved.order && !bag.lines.order.length) bag.lines = saved;
+    else if (r.lines && r.lines.length && !bag.lines.order.length) r.lines.forEach(function (l) { bag.lines.order.push(l.sku); bag.lines.sl[l.sku] = l.sl; });
+    vqAttach(bag);
+    if (S.bag === bag) { [].forEach.call(document.querySelectorAll('.baono'), function (el) { el.textContent = r.baoNo; }); nbRedraw(); }
+    return bag;
+  });
+  bag.ready.catch(function (e) {
+    if (S.bag !== bag) return;
+    if (bag.job) { vqDrop(bag.job); bag.job = null; }
+    S.bag = null; S.view = 'hh';
+    toast('Chưa tạo được bao: ' + ((e && e.message) || 'mất kết nối') + '.', true); viewNk();
+  });
+  S.bag = bag; S.view = 'nbag'; viewNBag();
+}
+function nbSum(b) { var n = 0; b.lines.order.forEach(function (s) { n += Number(b.lines.sl[s]) || 0; }); return n; }
+function nbBtn(b) { return '✓ Chốt bao số <span class="baono">' + (b.baoNo || '…') + '</span> (' + b.lines.order.length + ' mã, ' + fmtN(nbSum(b)) + ' cái)'; }
+function viewNBag() {
+  var b = S.bag;
+  render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Huỷ bao" onclick="nbCancel()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Nhập kho · ' + esc(b.ma) + '</div><div class="title">Bao số <span class="baono">' + (b.baoNo || '…') + '</span></div></div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Video bóc hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Mã hàng &amp; số lượng trong bao</h3>' +
+    '<div class="muted small">Quét mã trên từng món (mỗi lần quét +1), hoặc gõ mã + nhập tay số lượng rồi bấm Thêm.</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 170px" id="nbcode" autocomplete="off" autocapitalize="characters" placeholder="Mã SKU" ' +
+    'oninput="nbSuggest(this.value)" onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAddTyped()}">' +
+    '<input class="in" style="width:96px;flex:none;text-align:center" id="nbqty" type="number" inputmode="numeric" min="1" placeholder="SL" aria-label="Số lượng" ' +
+    'onkeydown="if(event.key===\'Enter\'){event.preventDefault();nbAddTyped()}">' +
+    '<button type="button" class="btn sm pri" style="height:50px" onclick="nbAddTyped()">＋ Thêm</button>' +
+    (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(nbAdd)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+    '<div id="nbsug" class="stack" style="gap:6px"></div><div id="nblines" class="stack" style="gap:8px">' + nbLines(b) + '</div></div>' +
+    '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Ảnh bao hàng <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div class="thumbs" id="nbph">' + nbPhotos(b) + '</div></div>' +
+    '</div>' +
+    '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="pfile" accept="image/*" capture="environment" hidden onchange="gotPhotos(this)">' +
+    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="nbgo" onclick="nbSave()">' + nbBtn(b) + '</button></div></div>' +
+    nav('hh'));
+}
+function nbPhotos(b) {
+  return b.photos.map(function (p, n) {
+    return '<div>' + (p.thumb ? '<img src="' + p.thumb + '" alt="Ảnh bao">' : '<div class="nothumb">Ảnh ' + (n + 1) + '</div>') + (p.id ? '' : '<div class="small muted center">đang tải…</div>') + '</div>';
+  }).join('') + '<button type="button" class="add" aria-label="Chụp ảnh" onclick="$(\'pfile\').click()">' + ICON.cam + '</button>';
+}
+function nbLines(b) {
+  var by = hhBySku();
+  if (!b.lines.order.length) return '<div class="muted small">Chưa có mã nào. Quét mã trên từng món, hoặc gõ vài chữ của mã rồi chọn.</div>';
+  return b.lines.order.slice().reverse().map(function (s) {
+    var i = by[s] || {};
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px" data-sku="' + esc(s) + '"><div style="flex:1 1 170px;min-width:0">' +
+      '<div class="bold">' + esc(s) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div></div>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="nbStep(this,-1)">−</button>' +
+      '<input class="in" style="width:76px;height:42px;text-align:center" inputmode="numeric" value="' + esc(b.lines.sl[s]) + '" onchange="nbSet(this)">' +
+      '<button type="button" class="btn sm" onclick="nbStep(this,1)">+</button>' +
+      '<button type="button" class="btn sm" title="Bỏ mã này" onclick="nbDel(this)">✕</button></div></div>';
+  }).join('');
+}
+function nbRedraw() {
+  var b = S.bag; if (!b || b.kind !== 'nk' || S.view !== 'nbag') return;
+  if ($('nbvid')) $('nbvid').innerHTML = vidBox(b);
+  if ($('nbph')) $('nbph').innerHTML = nbPhotos(b);
+  if ($('nblines')) $('nblines').innerHTML = nbLines(b);
+  if ($('nbgo')) $('nbgo').innerHTML = nbBtn(b);
+  if (b.bagId) store('godfbs_nb_' + b.bagId, JSON.stringify(b.lines));
+}
+function bagRedraw() { if (S.view === 'nbag') nbRedraw(); else if (S.view === 'dbag') dbRedraw(); else if (S.view === 'hbag') hbRedraw(); else if (S.view === 'bag') viewBag(); }
+function nbStep(el, n) { var b = S.bag, s = hhSkuOf(el); b.lines.sl[s] = Math.max(0, (Number(b.lines.sl[s]) || 0) + n); nbRedraw(); }
+function nbSet(el) { var b = S.bag, s = hhSkuOf(el), v = Math.round(Number(el.value)); b.lines.sl[s] = isFinite(v) && v >= 0 ? v : 0; nbRedraw(); }
+function nbDel(el) { var b = S.bag, s = hhSkuOf(el); b.lines.order = b.lines.order.filter(function (x) { return x !== s; }); delete b.lines.sl[s]; nbRedraw(); }
+function nbSuggest(v) {
+  var el = $('nbsug'); if (!el) return;
+  var q = normCode(v);
+  if (q.length < 2) { el.innerHTML = ''; return; }
+  var hits = S.hh.items.filter(function (i) { return i.sku.indexOf(q) >= 0; }).slice(0, 8);
+  el.innerHTML = hits.map(function (i) {
+    return '<button type="button" class="pick" style="padding:8px 12px" onclick="$(\'nbcode\').value=\'' + esc(i.sku) + '\';nbAddTyped()"><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai) + ' · tồn ' + fmtN(i.tonKho) + '</span></button>';
+  }).join('') || '<div class="small muted">Không có mã nào khớp trong danh sách quản lý.</div>';
+}
+/* Gõ mã + số lượng nhập tay (để trống số lượng = 1). Số nhập tay được CỘNG vào số đang có của mã đó. */
+function nbAddTyped() {
+  var c = $('nbcode'), q = $('nbqty'), n = Math.round(Number(q.value));
+  if (!normCode(c.value)) { toast('Gõ mã SKU trước nhé.', true); c.focus(); return; }
+  if (q.value !== '' && !(n > 0)) { toast('Số lượng phải lớn hơn 0.', true); q.focus(); return; }
+  if (nbAdd(c.value, q.value === '' ? 1 : n)) { c.value = ''; q.value = ''; nbSuggest(''); c.focus(); }
+}
+function nbAdd(code, qty) {
+  var b = S.bag; if (!b || b.kind !== 'nk') return false;
+  qty = Number(qty) > 0 ? Math.round(Number(qty)) : 1;
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code), hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([60, 60, 60]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return false;
+  }
+  if (b.lines.order.indexOf(it.sku) < 0) { b.lines.order.push(it.sku); b.lines.sl[it.sku] = 0; }
+  else { b.lines.order = b.lines.order.filter(function (x) { return x !== it.sku; }); b.lines.order.push(it.sku); }
+  b.lines.sl[it.sku] = (Number(b.lines.sl[it.sku]) || 0) + qty;
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  if (hint) hint.innerHTML = 'Đã quét <b>' + esc(it.sku) + '</b> → ' + b.lines.sl[it.sku] + ' cái. Quét món tiếp theo…';
+  else if (qty > 1) toast('Đã thêm ' + qty + ' cái ' + it.sku + ' (tổng ' + b.lines.sl[it.sku] + ').');
+  nbRedraw();
+  return true;
+}
+function nbBack() { S.bag = null; S.view = 'hh'; S.hhTab = 'nhap'; nkOpen(S.nkId); }
+function nbCancel() {
+  var b = S.bag;
+  ask('Huỷ bao số ' + (b.baoNo || '') + '? Video và các mã đã chọn của bao này sẽ mất, tồn kho không đổi.', { ok: 'Huỷ bao', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (REC) closeRecorder(true);
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId && j.bagId === b.bagId; }).forEach(vqDrop);
+    nbBack();
+    b.ready.then(function () { store('godfbs_nb_' + b.bagId, null); return call('nkCancelBag', { bagId: b.bagId }, { quiet: true, silent: true }); })
+      .then(function () { if (S.view === 'hh' && S.nkId === b.phieuId) nkOpen(b.phieuId); }).catch(function () {});
+  });
+}
+function nbSave() {
+  var b = S.bag;
+  if (!b.bagId) return toast('Đang lấy số bao, chờ 1–2 giây rồi bấm lại nhé.', true);
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Bao chưa có video bóc hàng.', true);
+  var lines = b.lines.order.map(function (s) { return { sku: s, sl: Number(b.lines.sl[s]) || 0 }; }).filter(function (l) { return l.sl > 0; });
+  if (!lines.length) return toast('Bao chưa có mã hàng nào.', true);
+  if (!b.photos.length) return toast('Bao chưa có ảnh. Chụp ít nhất 1 ảnh bao hàng nhé.', true);
+  if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
+  ask('Chốt bao số ' + b.baoNo + ', tồn kho cộng thêm:\n\n' + lines.map(function (l) { return l.sku + ' × ' + l.sl; }).join('\n'), { ok: 'Chốt bao' }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    var vid = b.videoId || '';
+    call('nkSaveBag', { bagId: b.bagId, lines: lines, videoId: vid, videoPending: !vid && !!(b.job && b.job.keep), photoIds: b.photos.map(function (p) { return p.id; }) },
+      { text: 'Đang chốt bao…' }).then(function (r) {
+      VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+        if (vid && j.fileId === vid) return vqDrop(j);
+        if (!j.keep) return vqDrop(j);
+        j.saved = true; vqSave(j); vqKick();
+      });
+      store('godfbs_nb_' + b.bagId, null);
+      if (S.hh) S.hh.items = r.items;
+      S.nkCur = r.detail; S.nkList = null; S.bag = null; S.view = 'hh'; S.hhTab = 'nhap';
+      toast('Đã chốt bao số ' + r.baoNo + ', tồn kho đã cộng.' + (vid || !(b.job && b.job.keep) ? '' : ' Video đang tự tải tiếp, đừng tắt app nhé.'));
+      viewNk();
+    });
+  });
+}
+
+/* ===================== ĐƠN HÀNG: TẢI FILE ĐƠN + QUÉT ĐÓNG ĐƠN (kho HN) ===================== */
+/* File Excel xuất từ sàn được đọc NGAY TRÊN MÁY, chỉ gửi lên máy chủ các cột: mã đơn, mã vận đơn, mã kiện, đơn vị vận chuyển,
+   trạng thái, SKU, phân loại, số lượng. Tên, điện thoại, địa chỉ người mua và giá không gửi đi.
+   Đóng đơn có 2 cách để chị thử: "Quét tem là xong" và "Đối chiếu từng món". Cả 2 đều bắt buộc video đóng đơn. */
+var XLSX_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', xlsxP = null;
+function loadXlsx() {
+  if (window.XLSX) return Promise.resolve();
+  if (xlsxP) return xlsxP;
+  xlsxP = new Promise(function (resolve, reject) {
+    var s = document.createElement('script'); s.src = XLSX_LIB; s.onload = resolve;
+    s.onerror = function () { xlsxP = null; reject(new Error('Không tải được bộ đọc Excel, kiểm tra mạng rồi thử lại.')); };
+    document.head.appendChild(s);
+  });
+  return xlsxP;
+}
+/* Tên cột (đã bỏ dấu, chữ thường) → trường cần lấy. Cột khác bỏ qua hết. */
+var DH_COLS = {
+  tiktok: { maDon: ['order id'], sku: ['seller sku'], sl: ['quantity'], tracking: ['tracking id'], packageId: ['package id'],
+    dvvc: ['shipping provider name'], trangThai: ['order status'], trangThai2: ['order substatus'], pl: ['variation'] },
+  shopee: { maDon: ['ma don hang'], sku: ['sku phan loai hang'], sl: ['so luong'], tracking: ['ma van don'], packageId: ['ma kien hang'],
+    dvvc: ['don vi van chuyen'], trangThai: ['trang thai don hang'], pl: ['ten phan loai hang'] }
+};
+function dhHeadKey(v) { return foldQ(v).replace(/\s+/g, ' ').trim(); }
+function dhParseSheet(rows) {
+  for (var h = 0; h < Math.min(rows.length, 8); h++) {
+    var head = rows[h].map(dhHeadKey);
+    for (var san in DH_COLS) {
+      var spec = DH_COLS[san], idx = {}, ok = true;
+      Object.keys(spec).forEach(function (f) {
+        var j = -1; spec[f].some(function (name) { j = head.indexOf(name); return j >= 0; });
+        idx[f] = j;
+      });
+      if (idx.maDon < 0 || idx.sku < 0 || idx.sl < 0) ok = false;
+      if (!('trangThai2' in idx)) idx.trangThai2 = -1;
+      if (!ok) continue;
+      var out = [], sci = 0;
+      for (var r = h + 1; r < rows.length; r++) {
+        var row = rows[r], g = function (f) { return idx[f] >= 0 ? String(row[idx[f]] === undefined ? '' : row[idx[f]]).trim() : ''; };
+        var ma = g('maDon').replace(/^'+/, '');
+        if (!/^[0-9A-Za-z-]{6,}$/.test(ma)) { if (/E\+/i.test(ma)) sci++; continue; }   // bỏ dòng mô tả (TikTok dòng 2), dòng trống
+        out.push({ maDon: ma, sku: g('sku'), sl: Number(g('sl').replace(/[^\d.-]/g, '')) || 0, tracking: g('tracking').replace(/^'+/, ''),
+          packageId: g('packageId').replace(/^'+/, ''), dvvc: g('dvvc'), trangThai: [g('trangThai'), g('trangThai2')].filter(Boolean).join(' · '), pl: g('pl') });
+      }
+      return { san: san, rows: out, sci: sci };
+    }
+  }
+  return null;
+}
+function dhPickFile(input) {
+  var f = input.files && input.files[0]; input.value = '';
+  if (!f) return;
+  var ten = $('dhten') ? $('dhten').value : '';
+  busy(true, 'Đang đọc file…');
+  loadXlsx().then(function () { return f.arrayBuffer(); }).then(function (buf) {
+    var wb = XLSX.read(buf, { type: 'array' }), got = null;
+    wb.SheetNames.some(function (n) {
+      got = dhParseSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: false, defval: '' }));
+      return !!got;
+    });
+    busy(false);
+    if (!got) throw new Error('Không nhận ra file. Cần file đơn xuất từ Shopee (sheet orders) hoặc TikTok Shop (có cột Order ID, Seller SKU, Quantity).');
+    if (got.sci) throw new Error('Có ' + got.sci + ' mã đơn bị Excel đổi sang dạng 5.8E+17 (mất số). Dùng đúng file tải từ sàn, đừng mở rồi lưu lại bằng Excel.');
+    if (!got.rows.length) throw new Error('File không có dòng đơn nào.');
+    return call('dhUpload', { san: got.san, ten: ten, fileName: f.name, rows: got.rows }, { text: 'Đang tải ' + got.rows.length + ' dòng đơn lên…' });
+  }).then(function (r) {
+    if (!r) return;
+    S.dhLast = r; S.dhList = null; S.dhLanId = null; dhLoadList();
+  }).catch(function (e) { busy(false); toast((e && e.message) || 'Không đọc được file.', true); });
+}
+function dhSan(s) { return s === 'tiktok' ? 'TikTok Shop' : s === 'shopee' ? 'Shopee' : s; }
+function dhLoadList() {
+  if (S.dhList) viewDhList(); else hhShell('<div class="card muted">Đang tải danh sách đơn…</div>');
+  call('dhList', {}, { quiet: true }).then(function (l) { S.dhList = l; if (S.view === 'hh' && S.hhTab === 'don' && !S.dhLanId && !editing()) viewDhList(); });
+}
+function dhLastCard() {
+  var r = S.dhLast; if (!r) return '';
+  return '<div class="card stack" style="border-color:var(--pri)"><div class="row between"><div class="bold">' + (r.khongMoi ? 'Không có đơn mới trong file' : 'Đã tải: ' + esc(r.ten)) + '</div>' +
+    '<button type="button" class="btn sm" onclick="S.dhLast=null;viewDhList()">Đóng</button></div>' +
+    (r.khongMoi ? '<div class="small">Các đơn trong file đều đã có trên app, nên app <b>không tạo lần tải mới</b>; chỉ cập nhật mã vận đơn / trạng thái cho ' + fmtN(r.capNhat) + ' đơn.</div>' : '') +
+    '<div class="small">' + dhSan(r.san) + ' · ' + fmtN(r.tongDon) + ' đơn trong file → giữ <b>' + fmtN(r.giuDon) + '</b> đơn có mã đang quản lý (mới ' + fmtN(r.moi) + ', cập nhật ' + fmtN(r.capNhat) + ').</div>' +
+    (r.chuaVanDon ? '<div class="small" style="color:var(--bad)"><b>' + fmtN(r.chuaVanDon) + ' đơn chưa có mã vận đơn</b>: quét tem sẽ không tìm ra. Sau khi in tem, xuất lại file và tải lên để bổ sung (không bị trùng).</div>' : '') +
+    (r.ngoai ? '<div class="small">' + fmtN(r.ngoai) + ' đơn sàn báo <b>đã lấy hàng / đang giao / đã giao</b> → ghi "Đã đóng ngoài app", không cần quét, không trừ tồn.</div>' : '') +
+    (r.huy ? '<div class="small">' + fmtN(r.huy) + ' đơn sàn báo <b>đã huỷ</b> → xếp vào mục Huỷ.</div>' : '') +
+    (r.daXong ? '<div class="small muted">' + fmtN(r.daXong) + ' đơn đã đóng từ trước: giữ nguyên, chỉ bổ sung mã vận đơn nếu có.</div>' : '') +
+    (r.gan && r.gan.length ? '<div class="small" style="color:var(--warn)">Khớp gần đúng (khác đuôi -LATE): ' + r.gan.map(function (g) { return esc(g.goc) + ' → ' + esc(g.sku); }).join(', ') + '</div>' : '') +
+    (r.boQua ? '<details class="small"><summary>Bỏ qua ' + fmtN(r.boQua) + ' dòng có mã không thuộc danh sách quản lý</summary><div class="muted">' +
+      r.skip.map(function (x) { return esc(x.sku) + ' (' + x.n + ')'; }).join(', ') + '</div></details>' : '') + '</div>';
+}
+function viewDhList() {
+  var up = can('hhDonTai') ? '<div class="card stack"><div class="bold">Tải file đơn từ sàn</div>' +
+    '<div class="muted small">File Excel xuất từ Shopee hoặc TikTok Shop. Nên xuất <b>sau khi đã in tem</b> để có mã vận đơn. App chỉ lấy đơn có mã đang quản lý; tải lại file của cùng đơn sẽ cập nhật, không tạo trùng.</div>' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="dhten" maxlength="80" placeholder="Tên lần tải (không bắt buộc), ví dụ TikTok 23/11 sáng">' +
+    '<button type="button" class="btn pri" onclick="$(\'dhfile\').click()">' + ICON.up + ' Chọn file đơn</button></div>' +
+    '<input type="file" id="dhfile" accept=".xlsx,.xls,.csv" hidden onchange="dhPickFile(this)"></div>' : '';
+  var pack = can('hhDon') ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="dhPack()">' + ICON.scan + ' Quét đóng đơn</button>' : '';
+  var rows = (S.dhList || []).map(function (l) {
+    var conLai = l.cho !== undefined ? l.cho : l.soDon - l.xong;
+    return '<button type="button" class="card lotcard" onclick="dhOpen(\'' + esc(l.lanId) + '\')">' +
+      '<div class="row between"><div class="bold">' + esc(l.ten) + '</div>' + (conLai ? '<span class="chip warn">Còn ' + fmtN(conLai) + ' đơn</span>' : '<span class="chip ok">Đã đóng hết</span>') + '</div>' +
+      '<div class="small">' + dhSan(l.san) + ' · ' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + (l.ngoai ? ' · ngoài app ' + fmtN(l.ngoai) : '') + (l.huy ? ' · huỷ ' + fmtN(l.huy) : '') + (l.chuaVanDon ? ' · <span style="color:var(--bad)">' + l.chuaVanDon + ' đơn chưa có mã vận đơn</span>' : '') + '</div>' +
+      '<div class="muted small">' + esc(l.createdAt) + ' · ' + esc(l.user) + (l.fileName ? ' · ' + esc(l.fileName) : '') + '</div></button>';
+  }).join('') || '<div class="card muted">Chưa tải file đơn nào.</div>';
+  hhShell(dhLastCard() + pack + up + rows);
+}
+function dhOpen(id) {
+  S.dhLanId = id; S.dhQ = S.dhQ || ''; S.dhF = S.dhF || 'cho';
+  if (S.dhCur && S.dhCur.lan.lanId === id) viewDhLan(); else hhShell('<div class="card muted">Đang tải đơn…</div>');
+  call('dhGet', { lanId: id }, { quiet: true }).then(function (d) { S.dhCur = d; if (S.view === 'hh' && S.dhLanId === id && !editing()) viewDhLan(true); });
+}
+function dhChip(o) {
+  return o.status === 'xong' ? '<span class="chip ok">Đã đóng</span>' : o.status === 'ngoai' ? '<span class="chip soft">Đã đóng ngoài app</span>' : o.status === 'huy' ? '<span class="chip bad">Huỷ</span>' : '<span class="chip warn">Chưa đóng</span>';
+}
+function dhLinesTxt(o) { return o.lines.map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + (o.khac ? ' <span class="muted">(+' + o.khac + ' món mã khác)</span>' : ''); }
+function viewDhLan(keep) {
+  var d = S.dhCur, l = d.lan, f = S.dhF, q = normCode(S.dhQ);
+  var list = d.dons.filter(function (o) { return (f === 'all' || o.status === f) && (!q || [o.maDon, o.tracking, o.packageId].join(' ').indexOf(q) >= 0 || o.lines.some(function (x) { return x.sku.indexOf(q) >= 0; })); });
+  var cho = d.dons.filter(function (o) { return o.status === 'cho'; });
+  var tot = {}, order = []; cho.forEach(function (o) { o.lines.forEach(function (x) { if (!(x.sku in tot)) { tot[x.sku] = 0; order.push(x.sku); } tot[x.sku] += Number(x.sl) || 0; }); });
+  order.sort();
+  var by = hhBySku();
+  var cnt = function (st) { return d.dons.filter(function (o) { return st === 'all' || o.status === st; }).length; };
+  var tabs = [['cho', 'Chưa đóng'], ['xong', 'Đã đóng'], ['ngoai', 'Ngoài app'], ['huy', 'Huỷ'], ['all', 'Tất cả']].map(function (t) {
+    return '<button type="button" class="tab ' + (f === t[0] ? 'on' : '') + '" onclick="S.dhF=\'' + t[0] + '\';viewDhLan(true)">' + t[1] + ' (' + cnt(t[0]) + ')</button>';
+  }).join('');
+  var rows = list.slice(0, 300).map(function (o) {
+    var vid = o.videoId === 'pending' ? '<span class="chip warn">Video đang tải</span>' : (o.videoId && can('evidence') ? '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(o.videoId) + '/view" target="_blank" rel="noopener">Xem video</a>' : '');
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div class="bold">' + esc(o.maDon) + '</div><div class="row" style="gap:6px">' + vid + dhChip(o) + '</div></div>' +
+      '<div class="small">' + dhLinesTxt(o) + '</div>' +
+      '<div class="muted small">Vận đơn: ' + (o.tracking ? esc(o.tracking) : '<span style="color:var(--bad)">chưa có</span>') + (o.dvvc ? ' · ' + esc(o.dvvc) : '') +
+      (o.status === 'xong' ? ' · Đóng bởi ' + esc(o.user) + ' lúc ' + esc(o.doneAt) + (o.cachDong === 'doichieu' ? ' (đối chiếu từng món)' : ' (quét tem)') : '') + (o.ghiChu ? ' · ' + esc(o.ghiChu) : '') + '</div>' +
+      '<div class="row wrapflex" style="gap:6px">' +
+      (o.status === 'cho' && can('hhDon') ? '<button type="button" class="btn sm pri" onclick="dhPackDon(\'' + esc(o.donId) + '\')">Đóng đơn này</button>' : '') +
+      (o.status === 'xong' && can('hhKiemKe') ? '<button type="button" class="btn sm danger" onclick="dhUndo(\'' + esc(o.donId) + '\',false)">Huỷ đóng (cộng lại tồn)</button>' : '') +
+      ((o.status === 'ngoai' || o.status === 'huy') && can('hhKiemKe') ? '<button type="button" class="btn sm" onclick="dhUndo(\'' + esc(o.donId) + '\',false)">Chuyển về Chưa đóng</button>' : '') +
+      (o.status !== 'huy' && can('hhKiemKe') ? '<button type="button" class="btn sm" onclick="dhUndo(\'' + esc(o.donId) + '\',true)">Đánh dấu đơn huỷ</button>' : '') + '</div></div>';
+  }).join('') || '<div class="muted small">Không có đơn nào.</div>';
+  var body = '<div class="row"><button type="button" class="iconbtn" aria-label="Về danh sách" onclick="S.dhLanId=null;dhLoadList()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Đơn hàng · ' + dhSan(l.san) + '</div><div class="title" style="font-size:20px">' + esc(l.ten) + '</div></div></div>' +
+    '<div class="muted small">' + fmtN(l.soDon) + ' đơn · đã đóng ' + fmtN(l.xong) + (l.ngoai ? ' · ngoài app ' + fmtN(l.ngoai) : '') + ' · tải bởi ' + esc(l.user) + ' lúc ' + esc(l.createdAt) +
+    (l.folderUrl && can('evidence') ? ' · <a href="' + esc(l.folderUrl) + '" target="_blank" rel="noopener">Thư mục video</a>' : '') + '</div>' +
+    (can('hhDon') && cho.length ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="dhPack()">' + ICON.scan + ' Quét đóng đơn (' + cho.length + ' đơn chờ)</button>' : '') +
+    (order.length ? '<details class="card"><summary class="bold" style="cursor:pointer">Tổng hàng cần soạn cho ' + cho.length + ' đơn chưa đóng</summary><div class="tablebox" style="margin-top:8px"><table class="t" style="min-width:0"><thead><tr><th>Mã SKU</th><th class="num">Cần</th><th class="num">Tồn kho</th></tr></thead><tbody>' +
+      order.map(function (s) { var t = by[s] ? by[s].tonKho : null, thieu = t !== null && t < tot[s]; return '<tr><td>' + esc(s) + '</td><td class="num bold">' + fmtN(tot[s]) + '</td><td class="num"' + (thieu ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + (t === null ? '—' : fmtN(t)) + '</td></tr>'; }).join('') +
+      '</tbody></table></div></details>' : '') +
+    '<div class="tabs" style="flex-wrap:wrap">' + tabs + '</div>' +
+    '<input class="in" id="dhq" placeholder="Tìm mã đơn, mã vận đơn, SKU…" value="' + esc(S.dhQ) + '" oninput="S.dhQ=this.value;clearTimeout(S.dhQT);S.dhQT=setTimeout(function(){viewDhLan(true);var i=$(\'dhq\');if(i){i.focus();i.setSelectionRange(i.value.length,i.value.length);}},250)">' +
+    rows + (list.length > 300 ? '<div class="muted small">Đang hiện 300 / ' + list.length + ' đơn, gõ để tìm.</div>' : '') +
+    (can('hhDonTai') && !l.xong ? '<div><button type="button" class="btn sm danger" onclick="dhDelLan()">Xoá lần tải này (tải nhầm file)</button></div>' : '');
+  hhShell(body, keep);
+}
+function dhUndo(donId, huy) {
+  var o = (S.dhCur && S.dhCur.dons.filter(function (x) { return x.donId === donId; })[0]) || {}, xong = o.status === 'xong';
+  ask(huy ? 'Đánh dấu đơn này là ĐƠN HUỶ?' + (xong ? ' Tồn kho sẽ được cộng lại.' : '') + ' Ghi lý do:'
+    : xong ? 'Huỷ đóng đơn này? Tồn kho được cộng lại, video vào thùng rác, đơn trở về "Chưa đóng". Ghi lý do:'
+    : 'Chuyển đơn này về "Chưa đóng" để quét đóng trên app (khi đóng xong sẽ trừ tồn)? Ghi lý do:', { input: true, ok: huy ? 'Đánh dấu huỷ' : xong ? 'Huỷ đóng' : 'Chuyển về Chưa đóng' }).then(function (ly) {
+    if (ly === null) return;
+    call('dhUndo', { donId: donId, huy: huy, lyDo: ly }, { text: 'Đang cập nhật…' }).then(function (r) {
+      if (S.hh) S.hh.items = r.items; S.dhList = null;
+      if (S.dhCur) S.dhCur.dons = S.dhCur.dons.map(function (o) { return o.donId === donId ? r.don : o; });
+      toast(huy ? 'Đã đánh dấu đơn huỷ.' : xong ? 'Đã huỷ đóng đơn, tồn kho đã cộng lại.' : 'Đã chuyển đơn về Chưa đóng.'); viewDhLan(true);
+    });
+  });
+}
+function dhDelLan() {
+  ask('Xoá lần tải "' + S.dhCur.lan.ten + '" và ' + S.dhCur.dons.length + ' đơn trong đó khỏi app? (Không ảnh hưởng tồn kho vì chưa đóng đơn nào.)', { ok: 'Xoá', danger: true }).then(function (ok) {
+    if (!ok) return;
+    call('dhDeleteLan', { lanId: S.dhLanId }, { text: 'Đang xoá…' }).then(function () { S.dhLanId = null; S.dhCur = null; S.dhList = null; toast('Đã xoá lần tải.'); dhLoadList(); });
+  });
+}
+
+/* ----- Quét đóng đơn ----- */
+function dhCach() { return load('godfbs_dh_cach') === 'doichieu' ? 'doichieu' : 'nhanh'; }
+function dhSetCach(c) {
+  var b = S.bag;
+  if (b && b.kind === 'don' && b.checkedAny && c === 'nhanh') return toast('Đang đối chiếu dở đơn này, xong đơn rồi hãy đổi cách.', true);
+  store('godfbs_dh_cach', c); viewDBag();
+}
+function dhPack() {
+  if (S.bag && S.bag.kind === 'hoan') return toast('Đang nhận dở kiện hoàn ' + S.bag.baoNo + ': bấm Chốt hoàn hoặc Bỏ kiện này trước.', true);
+  if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+  if (S.bag && S.bag.kind === 'don') { S.view = 'dbag'; return viewDBag(); }
+  S.bag = null; S.view = 'dbag'; viewDBag();
+  setTimeout(function () { var i = $('dhcode'); if (i) i.focus(); }, 50);
+}
+function dhPackDon(donId) {
+  var o = S.dhCur && S.dhCur.dons.filter(function (x) { return x.donId === donId; })[0];
+  if (!o) return;
+  if (S.bag && S.bag.kind === 'don' && S.bag.bagId !== donId) return toast('Đang đóng dở đơn ' + S.bag.don.maDon + '. Xong hoặc bỏ đơn đó trước.', true);
+  if (!S.bag) dhStartDon(o);
+  S.view = 'dbag'; viewDBag();
+}
+function dhStartDon(o) {
+  var bag = { kind: 'don', bagId: o.donId, baoNo: o.maDon, don: o, job: null, videoId: null, photos: [], got: {}, checkedAny: false, ready: Promise.resolve() };
+  bag.ready.then(function () { return bag; });
+  S.bag = bag; vqAttach(bag);
+  return bag;
+}
+function dhScanTem(code) {
+  code = normCode(code); if (!code) return;
+  if (SCAN) closeScanner();
+  var b = S.bag;
+  if (b && b.kind === 'don') {
+    if ([b.don.maDon, b.don.tracking, b.don.packageId].indexOf(code) >= 0) return toast('Đang mở đúng đơn này rồi.');
+    return toast('Đang đóng dở đơn ' + b.don.maDon + '. Bấm Xong đơn hoặc Bỏ đơn này trước khi quét tem khác.', true);
+  }
+  call('dhFind', { code: code }, { text: 'Đang tìm đơn…' }).then(function (r) {
+    var i = $('dhcode'); if (i) i.value = '';
+    if (!r.found) {
+      try { if (navigator.vibrate) navigator.vibrate([80, 60, 80]); } catch (e) { /* bỏ qua */ }
+      S.dhMiss = code; viewDBag(); return;
+    }
+    S.dhMiss = null;
+    var o = r.don;
+    if (o.status !== 'cho') { S.dhSeen = o; viewDBag(); return; }
+    S.dhSeen = null;
+    try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+    dhStartDon(o); viewDBag();
+  });
+}
+function dhNeedQty(b) { var n = 0; b.don.lines.forEach(function (l) { n += Number(l.sl) || 0; }); return n; }
+function dhGotQty(b) { var n = 0; b.don.lines.forEach(function (l) { n += Math.min(Number(b.got[l.sku]) || 0, Number(l.sl) || 0); }); return n; }
+function dhItemsOk(b) { return b.don.lines.every(function (l) { return (Number(b.got[l.sku]) || 0) === (Number(l.sl) || 0); }); }
+function dhItemLines(b) {
+  var by = hhBySku(), dc = dhCach() === 'doichieu';
+  return b.don.lines.map(function (l) {
+    var g = Number(b.got[l.sku]) || 0, need = Number(l.sl) || 0, it = by[l.sku] || {}, ok = g === need, over = g > need;
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px;' + (dc ? (ok ? 'border-color:var(--ok);background:var(--ok-bg)' : over ? 'border-color:var(--bad)' : '') : '') + '">' +
+      '<div style="flex:1 1 170px;min-width:0"><div class="bold">' + esc(l.sku) + '</div><div class="muted small">' + esc(l.pl || it.phanLoai || '') + (it.tenTem ? ' · ' + esc(it.tenTem) : '') + ' · tồn ' + fmtN(it.tonKho) + '</div></div>' +
+      '<div class="row" style="gap:8px;flex:none;margin-left:auto">' + (dc ? '<div class="bold" style="font-size:20px;' + (over ? 'color:var(--bad)' : '') + '">' + g + ' / ' + need + '</div>' + (g ? '<button type="button" class="btn sm" title="Bớt 1" onclick="dhItemMinus(\'' + esc(l.sku) + '\')">−</button>' : '') : '<div class="bold" style="font-size:20px">× ' + need + '</div>') + '</div></div>';
+  }).join('') + (b.don.khac ? '<div class="small" style="color:var(--warn)">Đơn còn ' + b.don.khac + ' món mã khác (không thuộc danh sách quản lý): nhớ cho vào đơn, app không trừ tồn các món này.</div>' : '');
+}
+function dhItemMinus(sku) { var b = S.bag; b.got[sku] = Math.max(0, (Number(b.got[sku]) || 0) - 1); dbRedraw(); }
+function dhScanItem(code) {
+  var b = S.bag; if (!b || b.kind !== 'don') return;
+  code = normCode(code); if (!code) return;
+  var hint = $('scanhint'), it = hhFind(code), sku = it ? it.sku : code;
+  var line = b.don.lines.filter(function (l) { return l.sku === sku; })[0];
+  var bad = function (msg) {
+    try { if (navigator.vibrate) navigator.vibrate([80, 60, 80]); } catch (e) { /* bỏ qua */ }
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+  };
+  if (!line) return bad('Sai hàng: ' + code + ' không có trong đơn này.');
+  var g = Number(b.got[sku]) || 0;
+  if (g >= Number(line.sl)) return bad('Thừa: đơn chỉ cần ' + line.sl + ' cái ' + sku + '.');
+  b.got[sku] = g + 1; b.checkedAny = true;
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  if (hint) hint.innerHTML = 'Đã quét <b>' + esc(sku) + '</b> → ' + b.got[sku] + ' / ' + line.sl + (dhItemsOk(b) ? ' · <b>Đủ hàng!</b>' : '');
+  if (dhItemsOk(b) && SCAN) setTimeout(closeScanner, 700);
+  dbRedraw();
+}
+function dhItemTyped() { var i = $('dhitem'); dhScanItem(i.value); i.value = ''; i.focus(); }
+function dbBtn(b) {
+  if (!b) return '';
+  var n = dhNeedQty(b), dc = dhCach() === 'doichieu';
+  return '✓ Xong đơn · trừ tồn ' + fmtN(n) + ' cái' + (dc ? ' (' + dhGotQty(b) + '/' + n + ' đã quét)' : '');
+}
+function viewDBag() {
+  var b = S.bag && S.bag.kind === 'don' ? S.bag : null, c = dhCach(), o = b && b.don;
+  var mode = '<div class="tabs" style="flex-wrap:wrap"><button type="button" class="tab ' + (c === 'nhanh' ? 'on' : '') + '" onclick="dhSetCach(\'nhanh\')">Cách 1 · Quét tem là xong</button>' +
+    '<button type="button" class="tab ' + (c === 'doichieu' ? 'on' : '') + '" onclick="dhSetCach(\'doichieu\')">Cách 2 · Đối chiếu từng món</button></div>' +
+    '<div class="muted small">' + (c === 'nhanh' ? 'Quét tem → quay video đóng đơn → Xong đơn (trừ tồn).' : 'Quét tem → quay video → quét từng món cho vào đơn, đủ và đúng mới Xong đơn được.') + '</div>';
+  var scan = '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Quét mã trên tem đóng gói</h3>' +
+    (o ? '<div class="card stack" style="padding:12px;background:var(--tint)"><div class="row between wrapflex"><div><div class="eyebrow">' + dhSan(o.san) + (o.dvvc ? ' · ' + esc(o.dvvc) : '') + '</div>' +
+        '<div class="bold" style="font-size:18px">' + esc(o.maDon) + '</div><div class="small">Vận đơn: <b>' + esc(o.tracking || '—') + '</b></div></div>' +
+        '<button type="button" class="btn sm" onclick="dhDrop()">Bỏ đơn này</button></div></div>'
+      : '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="dhcode" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã vận đơn, mã đơn" onkeydown="if(event.key===\'Enter\'){event.preventDefault();dhScanTem(this.value)}">' +
+        '<button type="button" class="btn sm pri" style="height:50px" onclick="dhScanTem($(\'dhcode\').value)">Tìm đơn</button>' +
+        (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(dhScanTem)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+        '<div class="muted small">Máy quét cầm tay: bấm vào ô rồi quét, máy tự Enter.</div>' +
+        (S.dhMiss ? '<div class="card" style="border-color:var(--bad);padding:10px 12px"><b style="color:var(--bad)">Không tìm thấy đơn có mã ' + esc(S.dhMiss) + '.</b><div class="small">Có thể đơn chưa được tải lên, hoặc file tải lên lúc chưa có mã vận đơn: xuất lại file sau khi in tem rồi tải lên. Hoặc đơn này không có mã hàng nào đang quản lý.</div></div>' : '') +
+        (S.dhSeen ? '<div class="card" style="border-color:var(--bad);padding:10px 12px"><b style="color:var(--bad)">Đơn ' + esc(S.dhSeen.maDon) + (S.dhSeen.status === 'xong' ? ' ĐÃ ĐÓNG rồi' : S.dhSeen.status === 'ngoai' ? ' ĐÃ ĐÓNG NGOÀI APP' : ' đã bị HUỶ') + '.</b><div class="small">' +
+          (S.dhSeen.status === 'xong' ? 'Đóng bởi ' + esc(S.dhSeen.user) + ' lúc ' + esc(S.dhSeen.doneAt) + '. Không trừ tồn lần nữa.'
+            : S.dhSeen.status === 'ngoai' ? esc(S.dhSeen.ghiChu || 'Theo trạng thái sàn') + '. Không trừ tồn. Nếu thật sự cần đóng trên app, vào danh sách đơn bấm "Chuyển về Chưa đóng".' : esc(S.dhSeen.ghiChu || '')) + '</div><div class="small">' + dhLinesTxt(S.dhSeen) + '</div></div>' : '')) + '</div>';
+  var rest = '';
+  if (b) {
+    rest = '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video đóng đơn <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
+      '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>' + (c === 'doichieu' ? 'Quét từng món cho vào đơn' : 'Hàng trong đơn') + '</h3>' +
+      (c === 'doichieu' ? '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 170px" id="dhitem" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã trên từng món" onkeydown="if(event.key===\'Enter\'){event.preventDefault();dhItemTyped()}">' +
+        (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(dhScanItem)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' : '') +
+      '<div id="dhlines" class="stack" style="gap:8px">' + dhItemLines(b) + '</div></div>';
+  }
+  render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="dhBackList()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Kho GOD Tầng 2</div><div class="title">Đóng hàng</div></div>' + (S.dhDem ? '<span class="chip ok">Đã đóng ' + S.dhDem + ' đơn</span>' : '') + '</div>' +
+    mode + scan + rest + '</div>' +
+    '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
+    (b ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="dbgo" onclick="dhDone()">' + dbBtn(b) + '</button></div></div>' : '') +
+    nav('hh'));
+}
+function dbRedraw() {
+  var b = S.bag; if (!b || b.kind !== 'don' || S.view !== 'dbag') return;
+  if ($('nbvid')) $('nbvid').innerHTML = vidBox(b);
+  if ($('dhlines')) $('dhlines').innerHTML = dhItemLines(b);
+  if ($('dbgo')) $('dbgo').innerHTML = dbBtn(b);
+}
+function dhBackList() {
+  S.view = 'hh'; S.hhTab = 'don';
+  if (S.dhLanId) dhOpen(S.dhLanId); else dhLoadList();
+}
+function dhDrop() {
+  var b = S.bag; if (!b) return;
+  var has = b.job || b.videoId;
+  (has ? ask('Bỏ đóng đơn ' + b.don.maDon + '? Video đã quay của đơn này sẽ bị bỏ, tồn kho không đổi.', { ok: 'Bỏ đơn', danger: true }) : Promise.resolve(true)).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (REC) closeRecorder(true);
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId; }).forEach(vqDrop);
+    S.bag = null; S.dhMiss = null; S.dhSeen = null; viewDBag();
+    if (has) call('dhAbandon', { donId: b.bagId }, { quiet: true, silent: true }).catch(function () {});
+    setTimeout(function () { var i = $('dhcode'); if (i) i.focus(); }, 50);
+  });
+}
+function dhDone() {
+  var b = S.bag; if (!b || b.kind !== 'don') return;
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Đơn chưa có video đóng đơn.', true);
+  var dc = dhCach() === 'doichieu';
+  if (dc && !dhItemsOk(b)) return toast('Chưa đủ hàng: mới quét ' + dhGotQty(b) + ' / ' + dhNeedQty(b) + ' món.', true);
+  var vid = b.videoId || '';
+  call('dhDone', { donId: b.bagId, cach: dc ? 'doichieu' : 'nhanh', videoId: vid, videoPending: !vid && !!(b.job && b.job.keep) }, { text: 'Đang chốt đơn…' }).then(function (r) {
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+      if (vid && j.fileId === vid) return vqDrop(j);
+      if (!j.keep) return vqDrop(j);
+      j.saved = true; vqSave(j); vqKick();
+    });
+    if (S.hh) S.hh.items = r.items;
+    if (S.dhCur) S.dhCur.dons = S.dhCur.dons.map(function (o) { return o.donId === r.don.donId ? r.don : o; });
+    S.dhList = null; S.bag = null; S.dhMiss = null; S.dhSeen = null; S.dhDem = (S.dhDem || 0) + 1;
+    toast('Xong đơn ' + r.don.maDon + ', đã trừ tồn.' + (r.am && r.am.length ? ' Lưu ý tồn bị âm: ' + r.am.join(', ') + '.' : '') + (vid ? '' : ' Video đang tự tải tiếp.'), !!(r.am && r.am.length));
+    viewDBag();
+    setTimeout(function () { var i = $('dhcode'); if (i) i.focus(); }, 50);
+  });
+}
+
+/* ===================== HÀNG HOÀN + TỒN HÀNG LỖI ===================== */
+/* Quét mã vận đơn trên kiện hoàn → app tìm đơn gốc → video bóc kiện (bắt buộc) → chọn từng món + tình trạng
+   (Nguyên vẹn: cộng lại tồn kho · Lỗi: vào tồn hàng lỗi) → ảnh (bắt buộc khi có hàng lỗi) → Chốt hoàn. */
+function hoLoadList() {
+  if (S.hoList) viewHoList(); else hhShell('<div class="card muted">Đang tải hàng hoàn…</div>');
+  call('hoanList', {}, { quiet: true }).then(function (r) { S.hoList = r; if (S.view === 'hh' && S.hhTab === 'hoan' && !editing()) viewHoList(true); }).catch(function () {});
+}
+function hoLinesTxt(lines) {
+  return (lines || []).map(function (l) {
+    return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b> ' + (l.tt === 'loi' ? '<span class="chip bad">Lỗi</span>' : '<span class="chip ok">Nguyên vẹn</span>');
+  }).join(' · ');
+}
+function viewHoList(keep) {
+  var r = S.hoList || { list: [] }, b = S.bag && S.bag.kind === 'hoan' ? S.bag : null;
+  var top = can('hhHoan') ? '<button type="button" class="btn pri block" style="height:56px;font-size:17px" onclick="hoNew()">' + ICON.scan +
+    (b ? ' Tiếp tục kiện hoàn ' + esc(b.baoNo) : ' ＋ Nhận hàng hoàn') + '</button>' : '';
+  var loi = ((S.hh && S.hh.items) || []).filter(function (i) { return i.tonLoi; });
+  var loiCard = '<div class="card stack"><div class="row between"><h3 style="margin:0">Tồn hàng lỗi</h3>' +
+    (loi.length ? '<span class="chip bad">' + fmtN(loi.reduce(function (a, i) { return a + i.tonLoi; }, 0)) + ' cái</span>' : '') + '</div>' +
+    (loi.length ? '<div class="tablebox"><table class="t" style="min-width:420px"><thead><tr><th>Mã SKU</th><th>Phân loại</th><th class="num">Hàng lỗi</th><th></th></tr></thead><tbody>' +
+      loi.map(function (i) {
+        return '<tr><td class="bold">' + esc(i.sku) + '</td><td>' + esc(i.phanLoai) + '</td><td class="num bold" style="color:var(--bad)">' + fmtN(i.tonLoi) + '</td>' +
+          '<td>' + (can('hhHoan') ? '<button type="button" class="btn sm" onclick="hoLoiOut(\'' + esc(i.sku) + '\')">Xuất</button>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div><div class="muted small">Bấm "Xuất" khi trả hàng lỗi về xưởng, huỷ bỏ, hoặc sửa xong. Mỗi lần xuất ghi vào Lịch sử tồn kho.</div>'
+      : '<div class="muted small">Chưa có hàng lỗi.</div>') + '</div>';
+  var rows = (r.list || []).map(function (h) {
+    var vid = h.videoId === 'pending' ? '<span class="chip warn">Video đang tải</span>' : (h.videoId && can('evidence') ? '<a class="btn sm" href="https://drive.google.com/file/d/' + esc(h.videoId) + '/view" target="_blank" rel="noopener">Xem video</a>' : '');
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div><div class="bold">' + esc(h.maDon) + '</div>' +
+      '<div class="muted small">' + (h.san ? dhSan(h.san) + ' · ' : '<span style="color:var(--warn)">Không có đơn gốc trên app</span> · ') + 'Vận đơn ' + esc(h.tracking || '—') + '</div></div>' +
+      '<div class="row" style="gap:6px">' + vid + (h.photoIds.length ? '<span class="chip soft">' + h.photoIds.length + ' ảnh</span>' : '') + '</div></div>' +
+      '<div class="small">' + hoLinesTxt(h.lines) + '</div>' +
+      '<div class="muted small">Nhận bởi ' + esc(h.user) + ' lúc ' + esc(h.createdAt) + (h.ghiChu ? ' · ' + esc(h.ghiChu) : '') + '</div>' +
+      (can('hhKiemKe') ? '<div><button type="button" class="btn sm" style="color:var(--bad)" onclick="hoDel(\'' + esc(h.hoanId) + '\')">Xoá phiếu hoàn (nhập nhầm)</button></div>' : '') + '</div>';
+  }).join('') || '<div class="card muted">Chưa nhận kiện hoàn nào.</div>';
+  hhShell(top + loiCard + '<div class="row between"><h3 style="margin:0">Kiện hoàn đã nhận</h3>' +
+    (r.folderUrl && can('evidence') ? '<a class="small" href="' + esc(r.folderUrl) + '" target="_blank" rel="noopener">Thư mục video</a>' : '') + '</div>' + rows, keep);
+}
+function hoLoiOut(sku) {
+  var it = hhBySku()[sku] || {};
+  ask('Xuất bao nhiêu cái hàng lỗi ' + sku + '? (đang có ' + fmtN(it.tonLoi) + ')', { input: true, inputType: 'number', ok: 'Tiếp' }).then(function (v) {
+    var n = Math.round(Number(v));
+    if (v === null) return;
+    if (!(n > 0) || n > (it.tonLoi || 0)) return toast('Số lượng không hợp lệ.', true);
+    return ask('Lý do xuất ' + n + ' cái ' + sku + ' (ví dụ: trả xưởng sửa, huỷ bỏ):', { input: true, ok: 'Xuất hàng lỗi' }).then(function (ly) {
+      if (ly === null) return;
+      if (!String(ly).trim()) return toast('Ghi lý do nhé.', true);
+      return call('hoanLoiOut', { sku: sku, sl: n, lyDo: ly }, { text: 'Đang xuất hàng lỗi…' }).then(function (r) {
+        S.hh.items = r.items; toast('Đã xuất ' + n + ' cái hàng lỗi ' + sku + '.'); viewHoList(true);
+      });
+    });
+  });
+}
+function hoDel(id) {
+  var h = ((S.hoList && S.hoList.list) || []).filter(function (x) { return x.hoanId === id; })[0]; if (!h) return;
+  ask('Xoá phiếu hoàn ' + h.maDon + '? Tồn kho và tồn hàng lỗi sẽ bị trừ lại đúng số đã nhận, video và ảnh vào thùng rác. Ghi lý do:', { input: true, ok: 'Xoá phiếu' }).then(function (ly) {
+    if (ly === null) return;
+    call('hoanDelete', { hoanId: id, lyDo: ly }, { text: 'Đang xoá…' }).then(function (r) {
+      S.hh.items = r.items; S.hoList.list = S.hoList.list.filter(function (x) { return x.hoanId !== id; });
+      toast('Đã xoá phiếu hoàn ' + h.maDon + '.'); viewHoList(true);
+    });
+  });
+}
+
+/* ---------- Màn nhận 1 kiện hoàn ---------- */
+function hoNew() {
+  if (!S.hh) call('hhList', {}, { quiet: true }).then(function (r) { S.hh = r; }).catch(function () {});
+  if (!(S.bag && S.bag.kind === 'hoan')) { S.bag = null; S.hoFound = null; }
+  S.view = 'hbag'; viewHBag();
+  setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+}
+function hoTT() { return S.hoTT === 'loi' ? 'loi' : 'ok'; }
+function hoFind(code) {
+  code = normCode(code); if (!code) return;
+  if (SCAN) closeScanner();
+  call('hoanFind', { code: code }, { text: 'Đang tìm đơn gốc…' }).then(function (r) {
+    S.hoFound = { code: code, don: r.don, daHoan: r.daHoan || [] }; viewHBag();
+  });
+}
+function hoStart() {
+  var f = S.hoFound; if (!f) return;
+  call('hoanStart', { code: f.code, donId: f.don ? f.don.donId : '' }, { text: 'Đang mở phiếu hoàn…' }).then(function (r) {
+    var bag = { kind: 'hoan', bagId: r.hoanId, baoNo: f.don ? f.don.maDon : f.code, don: f.don, code: f.code, job: null, videoId: null, photos: [], lines: [], ghiChu: '', ready: Promise.resolve() };
+    S.bag = bag; S.hoFound = null; vqAttach(bag); viewHBag();
+  });
+}
+function hoAdd(sku, tt) {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  tt = tt || hoTT();
+  var l = b.lines.filter(function (x) { return x.sku === sku && x.tt === tt; })[0];
+  if (l) l.sl += 1; else b.lines.push({ sku: sku, sl: 1, tt: tt });
+  hbRedraw();
+}
+function hoScanItem(code) {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  code = normCode(code); if (!code) return;
+  var it = hhFind(code), hint = $('scanhint');
+  if (!it) {
+    try { if (navigator.vibrate) navigator.vibrate([80, 60, 80]); } catch (e) { /* bỏ qua */ }
+    var msg = 'Mã ' + code + ' không có trong danh sách hàng đang quản lý.';
+    if (hint) hint.innerHTML = '<b style="color:#ffb4a8">' + esc(msg) + '</b>'; else toast(msg, true);
+    return;
+  }
+  try { if (navigator.vibrate) navigator.vibrate(60); } catch (e) { /* bỏ qua */ }
+  hoAdd(it.sku);
+  if (hint) hint.innerHTML = 'Đã thêm <b>' + esc(it.sku) + '</b> · ' + (hoTT() === 'loi' ? 'Lỗi' : 'Nguyên vẹn');
+}
+function hoItemTyped() { var i = $('hoitem'); hoScanItem(i.value); i.value = ''; i.focus(); }
+function hoStep(n, d) { var l = S.bag.lines[n]; if (!l) return; l.sl = Math.max(0, l.sl + d); if (!l.sl) S.bag.lines.splice(n, 1); hbRedraw(); }
+function hoSetSl(n, el) { var l = S.bag.lines[n], v = Math.round(Number(el.value)); if (!l) return; if (isFinite(v) && v > 0) l.sl = v; else S.bag.lines.splice(n, 1); hbRedraw(); }
+function hoFlip(n) {
+  var b = S.bag, l = b.lines[n]; if (!l) return;
+  var tt = l.tt === 'loi' ? 'ok' : 'loi', same = b.lines.filter(function (x) { return x !== l && x.sku === l.sku && x.tt === tt; })[0];
+  if (same) { same.sl += l.sl; b.lines.splice(n, 1); } else l.tt = tt;
+  hbRedraw();
+}
+function hoSum(b, tt) { var n = 0; b.lines.forEach(function (l) { if (l.tt === tt) n += l.sl; }); return n; }
+function hoLinesHtml(b) {
+  var by = hhBySku();
+  var quick = b.don && b.don.lines.length ? '<div class="row wrapflex" style="gap:6px"><span class="muted small" style="align-self:center">Hàng trong đơn gốc:</span>' + b.don.lines.map(function (l) {
+    return '<button type="button" class="btn sm" onclick="hoAdd(\'' + esc(l.sku) + '\')">＋ ' + esc(l.sku) + ' <span class="muted">(gửi ' + fmtN(l.sl) + ')</span></button>';
+  }).join('') + '</div>' : '';
+  var list = b.lines.length ? b.lines.map(function (l, n) {
+    var it = by[l.sku] || {}, loi = l.tt === 'loi';
+    return '<div class="card row between wrapflex" style="padding:10px 12px;gap:8px 10px;' + (loi ? 'border-color:var(--bad)' : 'border-color:var(--ok)') + '">' +
+      '<div style="flex:1 1 160px;min-width:0"><div class="bold">' + esc(l.sku) + '</div><div class="muted small">' + esc(it.tenTem || it.ten || '') + (it.phanLoai ? ' · ' + esc(it.phanLoai) : '') + '</div>' +
+      '<button type="button" class="chip ' + (loi ? 'bad' : 'ok') + '" style="border:0;cursor:pointer;margin-top:4px" onclick="hoFlip(' + n + ')">' + (loi ? 'Lỗi → bấm đổi' : 'Nguyên vẹn → bấm đổi') + '</button></div>' +
+      '<div class="row" style="gap:6px;flex:none;margin-left:auto"><button type="button" class="btn sm" onclick="hoStep(' + n + ',-1)">−</button>' +
+      '<input class="in" style="width:70px;height:42px;text-align:center" inputmode="numeric" value="' + l.sl + '" onchange="hoSetSl(' + n + ',this)">' +
+      '<button type="button" class="btn sm" onclick="hoStep(' + n + ',1)">+</button></div></div>';
+  }).join('') : '<div class="muted small">Chưa có món nào. Quét mã trên từng món, hoặc bấm nút mã hàng của đơn gốc ở trên.</div>';
+  return quick + list;
+}
+function hbBtn(b) { return '✓ Chốt hoàn · ' + fmtN(hoSum(b, 'ok')) + ' nguyên vẹn · ' + fmtN(hoSum(b, 'loi')) + ' lỗi'; }
+function viewHBag() {
+  var b = S.bag && S.bag.kind === 'hoan' ? S.bag : null, f = S.hoFound, tt = hoTT();
+  var scan = '<div class="card stack"><h3 style="margin:0"><span class="stepno">01</span>Quét mã vận đơn trên kiện hoàn</h3>';
+  if (b) {
+    scan += '<div class="card stack" style="padding:12px;background:var(--tint)"><div class="row between wrapflex"><div>' +
+      (b.don ? '<div class="eyebrow">' + dhSan(b.don.san) + (b.don.dvvc ? ' · ' + esc(b.don.dvvc) : '') + '</div><div class="bold" style="font-size:18px">' + esc(b.don.maDon) + '</div>' +
+        '<div class="small">Vận đơn: <b>' + esc(b.don.tracking || '—') + '</b></div><div class="small">Đơn gửi đi: ' + dhLinesTxt(b.don) + '</div>'
+        : '<div class="bold" style="font-size:18px">' + esc(b.code) + '</div><div class="small" style="color:var(--warn)">Không có đơn gốc trên app, vẫn nhận hoàn theo mã này.</div>') +
+      '</div><button type="button" class="btn sm" onclick="hoDrop()">Bỏ kiện này</button></div></div>';
+  } else {
+    scan += '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="hocode" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã vận đơn, mã đơn" onkeydown="if(event.key===\'Enter\'){event.preventDefault();hoFind(this.value)}">' +
+      '<button type="button" class="btn sm pri" style="height:50px" onclick="hoFind($(\'hocode\').value)">Tìm đơn</button>' +
+      (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(hoFind)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>';
+    if (f) {
+      scan += '<div class="card stack" style="padding:12px;' + (f.don ? 'background:var(--tint)' : 'border-color:var(--warn)') + '">' +
+        (f.don ? '<div class="eyebrow">Đơn gốc · ' + dhSan(f.don.san) + '</div><div class="bold" style="font-size:18px">' + esc(f.don.maDon) + '</div>' +
+          '<div class="small">Vận đơn: <b>' + esc(f.don.tracking || '—') + '</b> · ' + dhChip(f.don) + '</div><div class="small">' + dhLinesTxt(f.don) + '</div>'
+          : '<b style="color:var(--warn)">Không tìm thấy đơn gốc có mã ' + esc(f.code) + ' trên app.</b><div class="small">Có thể đơn chưa từng được tải lên. Vẫn nhận hoàn được, app ghi theo mã này.</div>') +
+        (f.daHoan.length ? '<div class="small" style="color:var(--bad)"><b>Đơn này đã nhận hoàn ' + f.daHoan.length + ' lần</b> (gần nhất bởi ' + esc(f.daHoan[f.daHoan.length - 1].user) + ' lúc ' + esc(f.daHoan[f.daHoan.length - 1].createdAt) + '). Kiểm tra kỹ trước khi nhận tiếp.</div>' : '') +
+        '<div class="row" style="gap:8px"><button type="button" class="btn pri" onclick="hoStart()">Nhận hoàn kiện này</button><button type="button" class="btn" onclick="S.hoFound=null;viewHBag()">Quét mã khác</button></div></div>';
+    }
+    scan += '<div class="muted small">Máy quét cầm tay: bấm vào ô rồi quét, máy tự Enter.</div>';
+  }
+  scan += '</div>';
+  var rest = '';
+  if (b) {
+    rest = '<div class="card stack"><h3 style="margin:0"><span class="stepno">02</span>Video bóc kiện hoàn <span class="chip bad" style="margin-left:6px">Bắt buộc</span></h3><div id="nbvid">' + vidBox(b) + '</div></div>' +
+      '<div class="card stack"><h3 style="margin:0"><span class="stepno">03</span>Hàng trong kiện hoàn</h3>' +
+      '<div class="tabs"><button type="button" class="tab ' + (tt === 'ok' ? 'on' : '') + '" onclick="S.hoTT=\'ok\';viewHBag()">Đang quét: Nguyên vẹn</button>' +
+      '<button type="button" class="tab ' + (tt === 'loi' ? 'on' : '') + '" onclick="S.hoTT=\'loi\';viewHBag()">Đang quét: Lỗi</button></div>' +
+      '<div class="muted small">Nguyên vẹn: cộng lại tồn kho. Lỗi: vào tồn hàng lỗi. Bấm nhãn trên từng món để đổi tình trạng.</div>' +
+      '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 170px" id="hoitem" autocomplete="off" autocapitalize="characters" placeholder="Quét / gõ mã trên từng món" onkeydown="if(event.key===\'Enter\'){event.preventDefault();hoItemTyped()}">' +
+      (CAN_SCAN ? '<button type="button" class="btn sm" style="height:50px" onclick="openScanner(hoScanItem)" title="Quét bằng camera">' + ICON.scan + '</button>' : '') + '</div>' +
+      '<div id="holines" class="stack" style="gap:8px">' + hoLinesHtml(b) + '</div></div>' +
+      '<div class="card stack"><h3 style="margin:0"><span class="stepno">04</span>Ảnh hàng hoàn <span id="hophreq">' + hoPhReq(b) + '</span></h3>' +
+      '<div class="thumbs" id="nbph">' + nbPhotos(b) + '</div>' +
+      '<label class="f">Ghi chú (không bắt buộc)<input class="in" id="hogc" maxlength="300" value="' + esc(b.ghiChu) + '" placeholder="Ví dụ: khách trả vì sai size, áo bị bẩn cổ" oninput="S.bag.ghiChu=this.value"></label></div>';
+  }
+  render('<div class="wrap stack" style="max-width:640px;padding-bottom:180px">' +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="hoBack()">' + ICON.back + '</button>' +
+    '<div class="grow"><div class="eyebrow">Kho GOD Tầng 2</div><div class="title">Nhận hàng hoàn</div></div>' + (S.hoDem ? '<span class="chip ok">Đã nhận ' + S.hoDem + ' kiện</span>' : '') + '</div>' +
+    scan + rest + '</div>' +
+    '<input type="file" id="vfile" accept="video/*" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="vcap" accept="video/*" capture="environment" hidden onchange="gotVideoFile(this)">' +
+    '<input type="file" id="pfile" accept="image/*" capture="environment" hidden onchange="gotPhotos(this)">' +
+    (b ? '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="hbgo" onclick="hoSave()">' + hbBtn(b) + '</button></div></div>' : '') +
+    nav('hh'));
+}
+function hoPhReq(b) { return hoSum(b, 'loi') ? '<span class="chip bad" style="margin-left:6px">Bắt buộc vì có hàng lỗi</span>' : '<span class="chip soft" style="margin-left:6px">Nên chụp</span>'; }
+function hbRedraw() {
+  var b = S.bag; if (!b || b.kind !== 'hoan' || S.view !== 'hbag') return;
+  if ($('nbvid')) $('nbvid').innerHTML = vidBox(b);
+  if ($('nbph')) $('nbph').innerHTML = nbPhotos(b);
+  if ($('holines')) $('holines').innerHTML = hoLinesHtml(b);
+  if ($('hophreq')) $('hophreq').innerHTML = hoPhReq(b);
+  if ($('hbgo')) $('hbgo').innerHTML = hbBtn(b);
+}
+function hoBack() {
+  if (REC) return toast('Đang quay video, dừng quay trước nhé.', true);
+  S.view = 'hh'; S.hhTab = 'hoan'; S.hoFound = null; hoLoadList();
+}
+function hoDrop() {
+  var b = S.bag; if (!b) return;
+  ask('Bỏ kiện hoàn ' + b.baoNo + '? Video, ảnh đã chụp của kiện này sẽ bị bỏ, tồn kho không đổi.', { ok: 'Bỏ kiện', danger: true }).then(function (ok) {
+    if (!ok || S.bag !== b) return;
+    if (REC) closeRecorder(true);
+    if (b.job) { vqDrop(b.job); b.job = null; }
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId; }).forEach(vqDrop);
+    S.bag = null; S.hoFound = null; viewHBag();
+    call('hoanCancel', { hoanId: b.bagId }, { quiet: true, silent: true }).catch(function () {});
+    setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+  });
+}
+function hoSave() {
+  var b = S.bag; if (!b || b.kind !== 'hoan') return;
+  if (!b.lines.length) return toast('Chưa có món hàng hoàn nào.', true);
+  if (b.job && b.job.status === 'hold') return toast('Video bị gián đoạn: chọn "Giữ đoạn đã quay" hoặc "Quay lại từ đầu" trước.', true);
+  if (!b.videoId && !(b.job && b.job.keep)) return toast('Chưa có video bóc kiện hoàn.', true);
+  if (b.photos.some(function (p) { return !p.id; })) return toast('Ảnh đang tải lên, chờ chút nhé.', true);
+  if (hoSum(b, 'loi') && !b.photos.length) return toast('Có hàng lỗi: chụp ít nhất 1 ảnh hàng lỗi nhé.', true);
+  var vid = b.videoId || '';
+  call('hoanSave', { hoanId: b.bagId, lines: b.lines, videoId: vid, videoPending: !vid && !!(b.job && b.job.keep),
+    photoIds: b.photos.map(function (p) { return p.id; }), ghiChu: b.ghiChu }, { text: 'Đang chốt hoàn…' }).then(function (r) {
+    VQ.jobs.filter(function (j) { return j.bagId === b.bagId && !j.dead; }).forEach(function (j) {
+      if (vid && j.fileId === vid) return vqDrop(j);
+      if (!j.keep) return vqDrop(j);
+      j.saved = true; vqSave(j); vqKick();
+    });
+    if (S.hh) S.hh.items = r.items;
+    S.hoList = null; S.bag = null; S.hoFound = null; S.hoDem = (S.hoDem || 0) + 1;
+    toast('Đã chốt hoàn ' + r.hoan.maDon + ': ' + hoSum({ lines: r.hoan.lines }, 'ok') + ' cái cộng lại tồn kho, ' + hoSum({ lines: r.hoan.lines }, 'loi') + ' cái vào hàng lỗi.' + (vid ? '' : ' Video đang tự tải tiếp.'));
+    viewHBag();
+    setTimeout(function () { var i = $('hocode'); if (i) i.focus(); }, 50);
+  });
+}
+
+/* ===================== TỒN THEO XƯỞNG + GỌI HÀNG VỀ KHO ===================== */
+function hxRows(sku) { return ((S.hh && S.hh.xuong) || {})[sku] || []; }
+function hxAllXuong() {
+  var m = {}; Object.keys((S.hh && S.hh.xuong) || {}).forEach(function (k) { S.hh.xuong[k].forEach(function (x) { m[x.xuong] = 1; }); });
+  return Object.keys(m).sort();
+}
+function viewHxTon(keep) {
+  var xs = hxAllXuong(), fx = S.hxF || '';
+  var head = hhTonModes() + '<div class="card stack">' +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="hhq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="S.hhQ=this.value;$(\'hxtb\').innerHTML=hxTonRows()" value="' + esc(S.hhQ || '') + '">' +
+    '<select class="in" style="flex:0 1 150px" onchange="S.hxF=this.value;$(\'hxtb\').innerHTML=hxTonRows()"><option value="">Tất cả xưởng</option>' +
+    xs.map(function (x) { return '<option' + (x === fx ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>' +
+    '<button type="button" class="btn sm" onclick="hhSync()">↻ Cập nhật</button></div>' +
+    '<div class="muted small">Số liệu từng xưởng lấy từ sheet "BÁO CÁO LỆNH SX" của file sản xuất' + (S.hh.syncAt ? ', cập nhật lúc ' + esc(S.hh.syncAt) : '') + '. Tồn xưởng = hàng đã sản xuất xong chưa giao về kho.</div>' +
+    (xs.length ? '' : '<div class="small" style="color:var(--warn)">Chưa có số liệu theo xưởng: bấm "↻ Cập nhật" để app đọc file sản xuất.</div>') +
+    '<div class="tablebox"><table class="t" style="min-width:760px"><thead><tr><th>Mã SKU / Xưởng</th><th class="num">Tồn kho</th><th class="num">Tồn xưởng</th><th class="num">Đang SX</th><th class="num">Lỗi ở kho</th><th class="num">Tổng tồn xưởng</th><th class="num">' + esc(S.hh.nhanTen || 'SL đã nhận') + '</th><th>Trạng thái</th></tr></thead>' +
+    '<tbody id="hxtb">' + hxTonRows() + '</tbody></table></div></div>';
+  hhShell(head, keep);
+}
+function hxTonRows() {
+  var q = foldQ(S.hhQ || ''), fx = S.hxF || '', out = [];
+  S.hh.items.forEach(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return;
+    var xs = hxRows(i.sku).filter(function (x) { return !fx || x.xuong === fx; });
+    if (fx && !xs.length) return;
+    var t = { tonXuong: 0, dangSx: 0, loiKho: 0, tongTon: 0, nhanThang: 0 };
+    xs.forEach(function (x) { Object.keys(t).forEach(function (k) { t[k] += x[k]; }); });
+    var n = function (v) { return v ? fmtN(v) : '<span class="muted">-</span>'; };
+    out.push('<tr style="background:var(--soft)"><td><b>' + esc(i.sku) + '</b> <span class="muted small">' + esc(i.phanLoai || '') + '</span></td><td class="num bold">' + fmtN(i.tonKho) + '</td>' +
+      '<td class="num bold">' + n(t.tonXuong) + '</td><td class="num bold">' + n(t.dangSx) + '</td><td class="num bold">' + n(t.loiKho) + '</td><td class="num bold">' + n(t.tongTon) + '</td><td class="num bold">' + n(t.nhanThang) + '</td><td>' + (xs.length ? '' : '<span class="muted small">Không có ở xưởng nào</span>') + '</td></tr>');
+    xs.forEach(function (x) {
+      out.push('<tr><td style="padding-left:22px">' + esc(x.xuong) + '</td><td></td><td class="num">' + n(x.tonXuong) + '</td><td class="num">' + n(x.dangSx) + '</td><td class="num">' + n(x.loiKho) + '</td><td class="num">' + n(x.tongTon) + '</td><td class="num">' + n(x.nhanThang) + '</td><td class="small">' + esc(x.trangThai) + '</td></tr>');
+    });
+  });
+  return out.join('') || '<tr><td colspan="8" class="muted">Không có mã nào khớp.</td></tr>';
+}
+
+/* ---------- Gọi hàng từ xưởng về kho ---------- */
+function goiCart() { if (!S.goi) { try { S.goi = JSON.parse(load('godfbs_goi') || '{}'); } catch (e) { S.goi = {}; } } return S.goi; }
+function goiSaveCart() { store('godfbs_goi', JSON.stringify(S.goi || {})); }
+function goiOpen() {
+  S.tonMode = 'goi'; goiCart();
+  if (S.goiInfo) viewGoi(); else hhShell(hhTonModes() + '<div class="card muted">Đang tải…</div>');
+  if (S.goiBusy) return;
+  S.goiBusy = true;
+  call('goiInfo', {}, { quiet: true }).then(function (r) {
+    S.goiBusy = false; S.goiInfo = r;
+    if (!S.goiNguoi) S.goiNguoi = load('godfbs_goi_nguoi') || '';
+    if (!S.goiNguoi && r.nguoiList.indexOf(r.me) >= 0) S.goiNguoi = r.me;
+    if (S.view === 'hh' && S.hhTab === 'ton' && S.tonMode === 'goi' && !editing()) viewGoi(true);
+  }).catch(function () { S.goiBusy = false; });
+}
+function goiCan(sku) { return ((S.goiInfo && S.goiInfo.canDon) || {})[sku] || 0; }
+function goiGoiY(i) { return Math.max(0, goiCan(i.sku) - (i.tonKho || 0)); }
+function goiSum() {
+  var c = goiCart(), n = 0, sl = 0;
+  Object.keys(c).forEach(function (k) { if (c[k] > 0) { n++; sl += c[k]; } });
+  return { n: n, sl: sl };
+}
+function viewGoi(keep) {
+  var info = S.goiInfo || { nguoiList: [], canDon: {}, phieu: [] }, sum = goiSum();
+  var top = hhTonModes() + '<div class="card stack">' +
+    '<div class="muted small">Chọn mã, xưởng và số lượng cần gọi về kho. Gợi ý = hàng các đơn Chưa đóng − tồn kho (chị sửa lại được). Chốt phiếu thì app ghi vào sheet <b>NHẬN HÀNG (Kho HN)</b> của file sản xuất.</div>' +
+    (info.err ? '<div class="small" style="color:var(--bad)">' + esc(info.err) + '</div>' : '') +
+    '<div class="row wrapflex" style="gap:8px"><input class="in" style="flex:1 1 200px" id="goiq" placeholder="Tìm mã SKU hoặc tên hàng" oninput="S.goiQ=this.value;$(\'goilist\').innerHTML=goiRows()" value="' + esc(S.goiQ || '') + '">' +
+    '<label class="row small" style="gap:6px"><input type="checkbox" ' + (S.goiCan ? 'checked' : '') + ' onchange="S.goiCan=this.checked;$(\'goilist\').innerHTML=goiRows()"> Chỉ mã đang thiếu cho đơn</label>' +
+    '<button type="button" class="btn sm" onclick="goiFillAll()">Điền theo gợi ý</button></div></div>' +
+    '<div id="goilist" class="stack" style="gap:8px">' + goiRows() + '</div>' +
+    '<div class="card stack" id="goicart">' + goiCartHtml() + '</div>' +
+    (info.phieu.length ? '<h3 style="margin:0">Phiếu gọi hàng gần đây</h3>' + info.phieu.map(function (p) {
+      var g = {}; p.lines.forEach(function (l) { (g[l.xuong] = g[l.xuong] || []).push(esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'); });
+      return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div class="bold">' + esc(p.phieuId) + '</div><span class="muted small">' + esc(p.createdAt) + ' · gọi: ' + esc(p.nguoiGoi) + ' · dòng ' + esc(p.sheetRows) + '</span></div>' +
+        Object.keys(g).map(function (x) { return '<div class="small"><b>' + esc(x) + ':</b> ' + g[x].join(' · ') + '</div>'; }).join('') + '</div>';
+    }).join('') : '');
+  hhShell(top + '<div style="height:90px"></div>' +
+    '<div class="sticky"><div class="inner"><button type="button" class="btn pri block" id="goigo" onclick="goiChot()">' + goiBtn(sum) + '</button></div></div>', keep);
+}
+function goiBtn(sum) { return sum.n ? '✓ Chốt phiếu gọi hàng · ' + sum.n + ' dòng · ' + fmtN(sum.sl) + ' cái' : 'Chưa chọn hàng để gọi'; }
+function goiRows() {
+  var q = foldQ(S.goiQ || ''), c = goiCart();
+  var list = S.hh.items.filter(function (i) {
+    if (q && foldQ(i.sku + ' ' + i.ten + ' ' + i.tenTem + ' ' + i.phanLoai).indexOf(q) < 0) return false;
+    return !S.goiCan || goiGoiY(i) > 0;
+  });
+  if (!list.length) return '<div class="card muted">Không có mã nào khớp.</div>';
+  return list.slice(0, 200).map(function (i) {
+    var xs = hxRows(i.sku), gy = goiGoiY(i), can = goiCan(i.sku);
+    return '<div class="card stack" style="padding:12px"><div class="row between wrapflex"><div><div class="bold">' + esc(i.sku) + '</div><div class="muted small">' + esc(i.tenTem || i.ten || '') + (i.phanLoai ? ' · ' + esc(i.phanLoai) : '') + '</div></div>' +
+      '<div class="row wrapflex" style="gap:6px"><span class="chip soft">Tồn kho ' + fmtN(i.tonKho) + '</span>' + (can ? '<span class="chip warn">Đơn chờ cần ' + fmtN(can) + '</span>' : '') +
+      (gy ? '<button type="button" class="chip bad" style="border:0;cursor:pointer" onclick="goiFill(\'' + esc(i.sku) + '\')">Gợi ý gọi ' + fmtN(gy) + ' → điền</button>' : '') + '</div></div>' +
+      (xs.length ? xs.map(function (x) {
+        var k = i.sku + '|' + x.xuong, v = c[k] || '';
+        return '<div class="row between wrapflex" style="gap:6px 10px;border-top:1px solid var(--line);padding-top:8px"><div style="flex:1 1 180px"><b>' + esc(x.xuong) + '</b> <span class="small">tồn xưởng <b>' + fmtN(x.tonXuong) + '</b> · đang SX ' + fmtN(x.dangSx) + '</span></div>' +
+          '<input class="in" style="width:90px;height:40px;text-align:center" inputmode="numeric" placeholder="SL gọi" value="' + v + '" data-k="' + esc(k) + '" onchange="goiSet(this)"></div>';
+      }).join('') : '<div class="muted small">Không có ở xưởng nào (bấm "↻ Cập nhật" ở mục Theo xưởng nếu vừa có lệnh mới).</div>') + '</div>';
+  }).join('');
+}
+function goiSet(el) {
+  var c = goiCart(), v = Math.round(Number(el.value));
+  if (isFinite(v) && v > 0) c[el.getAttribute('data-k')] = v; else { delete c[el.getAttribute('data-k')]; el.value = ''; }
+  goiSaveCart(); goiRedraw();
+}
+function goiFill(sku) {
+  var i = hhBySku()[sku]; if (!i) return;
+  var c = goiCart(), need = goiGoiY(i);
+  hxRows(sku).forEach(function (x) { delete c[sku + '|' + x.xuong]; });
+  hxRows(sku).slice().sort(function (a, b) { return b.tonXuong - a.tonXuong; }).forEach(function (x) {
+    if (need <= 0 || x.tonXuong <= 0) return;
+    var n = Math.min(need, x.tonXuong); c[sku + '|' + x.xuong] = n; need -= n;
+  });
+  goiSaveCart();
+  if (need > 0) toast('Các xưởng chỉ còn đủ một phần: thiếu ' + fmtN(need) + ' cái ' + sku + ' (có thể gọi thêm từ hàng đang SX).', true);
+  $('goilist').innerHTML = goiRows(); goiRedraw();
+}
+function goiFillAll() {
+  var n = 0;
+  S.hh.items.forEach(function (i) { if (goiGoiY(i) > 0 && hxRows(i.sku).some(function (x) { return x.tonXuong > 0; })) { goiFill(i.sku); n++; } });
+  toast(n ? 'Đã điền gợi ý cho ' + n + ' mã. Kiểm tra lại số lượng trước khi chốt nhé.' : 'Không có mã nào đang thiếu cho đơn chờ.');
+}
+function goiCartHtml() {
+  var c = goiCart(), g = {}, info = S.goiInfo || { nguoiList: [] };
+  Object.keys(c).forEach(function (k) { if (!(c[k] > 0)) return; var p = k.split('|'); (g[p[1]] = g[p[1]] || []).push({ sku: p[0], sl: c[k] }); });
+  var xs = Object.keys(g).sort();
+  var nl = info.nguoiList.slice(); if (S.goiNguoi && nl.indexOf(S.goiNguoi) < 0) nl.unshift(S.goiNguoi);
+  return '<div class="row between"><h3 style="margin:0">Phiếu gọi hàng</h3>' + (xs.length ? '<button type="button" class="btn sm" onclick="goiClear()">Xoá hết</button>' : '') + '</div>' +
+    (xs.length ? xs.map(function (x) {
+      var t = 0; g[x].forEach(function (l) { t += l.sl; });
+      return '<div class="small"><b>' + esc(x) + '</b> (' + fmtN(t) + ' cái): ' + g[x].map(function (l) { return esc(l.sku) + ' × <b>' + fmtN(l.sl) + '</b>'; }).join(' · ') + '</div>';
+    }).join('') : '<div class="muted small">Chưa có dòng nào. Nhập số lượng gọi ở từng xưởng phía trên.</div>') +
+    '<label class="f">Người gọi hàng' + (nl.length ? '<select class="in" onchange="S.goiNguoi=this.value;store(\'godfbs_goi_nguoi\',this.value)"><option value="">— Chọn —</option>' +
+      nl.map(function (x) { return '<option' + (x === S.goiNguoi ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select>'
+      : '<input class="in" value="' + esc(S.goiNguoi || '') + '" oninput="S.goiNguoi=this.value;store(\'godfbs_goi_nguoi\',this.value)">') + '</label>';
+}
+function goiRedraw() { if ($('goicart')) $('goicart').innerHTML = goiCartHtml(); if ($('goigo')) $('goigo').innerHTML = goiBtn(goiSum()); }
+function goiClear() { ask('Xoá hết các dòng trong phiếu gọi hàng đang soạn?', { ok: 'Xoá hết', danger: true }).then(function (ok) { if (!ok) return; S.goi = {}; goiSaveCart(); viewGoi(true); }); }
+function goiChot() {
+  var c = goiCart(), lines = [];
+  Object.keys(c).forEach(function (k) { if (c[k] > 0) { var p = k.split('|'); lines.push({ sku: p[0], xuong: p[1], sl: c[k] }); } });
+  if (!lines.length) return toast('Chưa chọn hàng để gọi.', true);
+  if (!S.goiNguoi) return toast('Chọn người gọi hàng nhé.', true);
+  var sum = goiSum();
+  ask('Chốt phiếu gọi ' + fmtN(sum.sl) + ' cái (' + sum.n + ' dòng)? App sẽ thêm ' + sum.n + ' dòng vào sheet NHẬN HÀNG (Kho HN) của file sản xuất, người gọi: ' + S.goiNguoi + '.', { ok: 'Chốt phiếu' }).then(function (ok) {
+    if (!ok) return;
+    call('goiSave', { lines: lines, nguoi: S.goiNguoi }, { text: 'Đang ghi lên file sản xuất…' }).then(function (r) {
+      S.goi = {}; goiSaveCart();
+      toast('Đã chốt phiếu ' + r.phieuId + ': ghi ' + r.soDong + ' dòng (dòng ' + r.rows + ') vào NHẬN HÀNG (Kho HN).');
+      S.goiInfo = null; goiOpen();
+    });
   });
 }
 

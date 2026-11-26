@@ -563,7 +563,7 @@ function navBar(active) {
       navItem(v === 'lots' && S.kho === k && S.tab === 'done', "navKho('" + k + "','done')", '', 'Đã xong', done, 'sub');
     fbs += navFolder('kho' + k, ICON.folder, KHO_TEN[k], body, open.length ? '<span class="nb hot">' + open.length + '</span>' : '', S.kho === k);
   });
-  if (can('import')) fbs += navItem(v === 'import', "navGo('import')", ICON.up, 'Tải file gốc mới');
+  if (can('import')) fbs += navItem(v === 'import', "navGo('import')", ICON.up, 'Tạo lô mới' + (srcNew(S.srcInfo).length ? ' (' + srcNew(S.srcInfo).length + ' mới)' : ''));
   var html = '<nav class="sbar" aria-label="Menu">' +
     '<div class="brand">' + ICON.logoSm + '<div><div class="nm">GM Hub</div><div class="sb">Kho Godmother</div></div>' +
     '<button type="button" class="navhide" title="Ẩn thanh menu" aria-label="Ẩn thanh menu" onclick="navMin(true)">«</button>' +
@@ -582,7 +582,7 @@ function navBar(active) {
 function nav(active) {
   var cur = (S.view === 'lot' || S.view === 'bag') && (S.lots || []).filter(function (l) { return l.lotId === S.lotId; })[0];
   if (cur && KHO_TEN[cur.kho]) S.kho = cur.kho;
-  var where = S.view === 'hh' || S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag' ? 'Kho GOD Tầng 2' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tải file gốc' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
+  var where = S.view === 'hh' || S.view === 'nbag' || S.view === 'dbag' || S.view === 'hbag' ? 'Kho GOD Tầng 2' : S.view === 'users' ? 'Tài khoản' : S.view === 'perms' ? 'Phân quyền' : (S.view === 'import' ? 'Tạo lô mới' : (KHO_TEN[S.kho] ? 'Đóng hàng FBS · ' + KHO_TEN[S.kho] : 'Đóng hàng FBS'));
   return '<div class="mtop"><button type="button" class="iconbtn" aria-label="Mở menu" onclick="navOpen(true)">' + ICON.menu + '</button>' +
     '<div class="mt">GM Hub<small>' + where + '</small></div>' +
     '<button type="button" class="iconbtn mfull" title="Xem toàn màn hình" aria-label="Ẩn thanh menu, xem toàn màn hình" onclick="navMin(true)">' + ICON.expand + '</button></div>' +
@@ -653,7 +653,7 @@ function go(view, arg) {
   S.view = view;
   if (view === 'lots') return loadLots();
   if (view === 'lot') { S.lotId = arg || S.lotId; return loadLot(); }
-  if (view === 'import') return viewImport();
+  if (view === 'import') { S.importInfo = null; S.importAsked = false; S.pickSheet = null; return viewImport(); }
   if (view === 'users') return loadUsers();
   if (view === 'perms') return loadPerms();
   if (view === 'hh') return loadHh(arg);
@@ -753,6 +753,7 @@ function khoSum(lots) {
   return r;
 }
 function viewFbsHome(keep) {
+  checkSrcNew();
   var cards = ['VNNL', 'VNVL'].map(function (k) {
     var t = khoSum(S.lots.filter(function (l) { return l.kho === k; }));
     return '<button type="button" class="card lotcard khocard" onclick="openKho(\'' + k + '\')">' +
@@ -769,7 +770,7 @@ function viewFbsHome(keep) {
     '<span class="chip soft">' + (isAdmin() ? 'Quản trị' : 'Nhân viên') + '</span></div>' +
     '<div class="khogrid">' + cards + '</div>' +
     (can('import') ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
-      '<div class="bold">Tải file gốc của lần xuất mới</div><div class="muted small dropsub">PO sẽ tự vào đúng Kho HN hoặc Kho HCM</div></button>' : '') +
+      '<div class="bold">Tạo lô mới từ file gốc' + srcBadge('') + '</div><div class="muted small dropsub">PO sẽ tự vào đúng Kho HN hoặc Kho HCM</div></button>' : '') +
     '</div>' + nav('lots'), keep);
 }
 function lotStats(open, done) {
@@ -784,6 +785,7 @@ function lotStats(open, done) {
 }
 function viewLots(keep) {
   if (!KHO_TEN[S.kho]) return viewFbsHome(keep);
+  checkSrcNew();
   var mine = S.lots.filter(function (l) { return l.kho === S.kho; });
   var open = mine.filter(function (l) { return l.status !== 'done'; });
   var done = mine.filter(function (l) { return l.status === 'done'; });
@@ -807,49 +809,104 @@ function viewLots(keep) {
     '<button type="button" class="tab ' + (S.tab === 'done' ? 'on' : '') + '" onclick="setTab(\'done\')">Đã xong (' + done.length + ')</button></div>' +
     (cards || '<div class="card center muted">' + KHO_TEN[S.kho] + ' chưa có PO nào ' + (S.tab === 'open' ? 'đang đóng' : 'đã xong') + '.</div>') +
     (can('import') ? '<button type="button" class="drop" onclick="go(\'import\')" style="color:var(--pri-ink)">' + ICON.up +
-      '<div class="bold">Tải file gốc của lần xuất mới</div><div class="muted small">Dán link Google Sheet file gốc</div></button>' : '') +
+      '<div class="bold">Tạo lô mới từ file gốc' + srcBadge(S.kho) + '</div><div class="muted small">Chọn sheet lô mới trong file gốc</div></button>' : '') +
     '</div>' + nav('lots'), keep);
 }
 
 /* ===================== TẢI FILE GỐC ===================== */
+/* File gốc chung: mỗi sheet "FBS…" là 1 lô. App nhớ file đã dùng lần trước, mở màn hình là hiện ngay các sheet chưa tạo lô. */
+function srcNew(info, kho) {   // sheet lô mới (chưa tạo lô, không ẩn), lọc theo kho nếu có
+  return ((info && info.sheets) || []).filter(function (x) {
+    return x.lo && !x.hidden && !x.lotPo && (!kho || !x.kho || x.kho === kho);
+  });
+}
+/** Hỏi ngầm số sheet mới trong file đã nhớ (để báo trên nút tải lô), nhớ 3 phút. */
+function checkSrcNew() {
+  if (!can('import') || S.srcBusy || (S.srcInfo && Date.now() - S.srcAt < 180000)) return;
+  S.srcBusy = true;
+  call('previewSource', {}, { quiet: true, silent: true }).then(function (d) {
+    S.srcBusy = false; S.srcAt = Date.now(); S.srcInfo = d && !d.none ? d : null;
+    if ((S.view === 'lots') && !editing()) viewLots(true);
+  }).catch(function () { S.srcBusy = false; S.srcAt = Date.now(); });
+}
+function srcBadge(kho) {
+  var n = srcNew(S.srcInfo, kho).length;
+  return n ? ' <span class="chip warn">' + n + ' sheet mới</span>' : '';
+}
 function viewImport() {
   var info = S.importInfo;
-  var sheets = info ? info.sheets.map(function (s, i) {
-    return '<label class="check"><input type="radio" name="sh" value="' + esc(s.name) + '" ' + (i === 0 ? 'checked' : '') +
-      ' onchange="pickSheet(this.value)">' + esc(s.name) + (s.kho ? ' <span class="chip soft">' + s.kho + '</span>' : '') + '</label>';
-  }).join('') : '';
-  var first = info && info.sheets[0];
+  if (!info && !S.importAsked) {   // mở màn hình: đọc luôn file đã nhớ
+    S.importAsked = true;
+    render('<div class="wrap"><div class="card center muted">Đang đọc file gốc…</div></div>' + nav('lots'));
+    call('previewSource', {}, { quiet: true }).then(function (d) {
+      if (S.view !== 'import') return;
+      if (d && !d.none) { S.importInfo = d; S.srcInfo = d; S.srcAt = Date.now(); S.changeSrc = false; }
+      else S.changeSrc = true;
+      viewImport();
+    }).catch(function () { S.changeSrc = true; viewImport(); });
+    return;
+  }
+  var news = srcNew(info), pick = S.pickSheet && info && info.sheets.filter(function (x) { return x.name === S.pickSheet; })[0];
+  if (!pick && news.length) pick = news.filter(function (x) { return !S.kho || x.kho === S.kho; })[0] || news[0];
+  var radio = function (s) {
+    var on = pick && pick.name === s.name;
+    return '<label class="check"><input type="radio" name="sh" value="' + esc(s.name) + '"' + (on ? ' checked' : '') +
+      ' onchange="pickSheet(this.value)"' + (s.lotPo ? ' disabled' : '') + '>' + esc(s.name) +
+      (s.kho ? ' <span class="chip soft">' + s.kho + '</span>' : '') +
+      (s.lotPo ? ' <span class="muted small">đã tạo lô</span>' : (s.lo && !s.hidden ? ' <span class="chip warn">Mới</span>' : '')) +
+      (s.hidden ? ' <span class="muted small">(ẩn)</span>' : '') + '</label>';
+  };
+  var others = info ? info.sheets.filter(function (x) { return news.indexOf(x) < 0; }) : [];
+  var srcBox = (!info || S.changeSrc)
+    ? '<div class="card stack"><label class="f">Link Google Sheet file gốc<input class="in" id="iu" value="' + esc(info ? info.url : '') + '" placeholder="https://docs.google.com/spreadsheets/d/…"></label>' +
+      '<div class="muted small">File cần được chia sẻ quyền chỉnh sửa cho tài khoản chạy phần mềm. App sẽ nhớ file này cho lần sau.</div>' +
+      '<div class="row" style="gap:8px"><button type="button" class="btn" onclick="readSource()">Đọc file</button>' +
+      (info ? '<button type="button" class="btn sm" onclick="S.changeSrc=false;viewImport()">Huỷ</button>' : '') + '</div></div>'
+    : '<div class="card row between" style="gap:10px"><div><div class="muted small">File gốc' + (info.saved ? ' (đã nhớ)' : '') + '</div>' +
+      '<a class="bold" href="' + esc(info.url) + '" target="_blank" rel="noopener">' + esc(info.title) + '</a></div>' +
+      '<div class="row" style="gap:6px"><button type="button" class="btn sm" onclick="refreshSource()">↻ Đọc lại</button>' +
+      '<button type="button" class="btn sm" onclick="S.changeSrc=true;viewImport()">Đổi file</button></div></div>';
   render('<div class="wrap stack" style="max-width:640px">' +
-    '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="S.importInfo=null;go(\'lots\')">' + ICON.back + '</button>' +
-    '<div class="title">Tải file gốc</div></div>' +
-    '<div class="card stack"><label class="f">Link Google Sheet file gốc<input class="in" id="iu" value="' + esc(info ? info.url : '') + '" placeholder="https://docs.google.com/spreadsheets/d/…"></label>' +
-    '<div class="muted small">File cần được chia sẻ quyền chỉnh sửa cho tài khoản chạy phần mềm.</div>' +
-    '<button type="button" class="btn" onclick="readSource()">Đọc file</button></div>' +
-    (info ? '<div class="card stack"><div class="bold">' + esc(info.title) + '</div><div class="muted small">Chọn sheet của lần xuất này:</div>' + sheets +
-      '<div class="grid2"><label class="f">Kho nhận<select class="in" id="ik">' +
-      '<option value="">Chọn kho…</option><option value="VNVL"' + (first && first.kho === 'VNVL' ? ' selected' : '') + '>VNVL · Long An</option>' +
-      '<option value="VNNL"' + (first && first.kho === 'VNNL' ? ' selected' : '') + '>VNNL · Bắc Ninh</option></select></label>' +
-      '<label class="f">ASN (nhập sau cũng được)<input class="in" id="ia"></label></div>' +
-      '<button type="button" class="btn pri" onclick="doImport()">Tải lô hàng lên</button></div>' : '') +
+    '<div class="row"><button type="button" class="iconbtn" aria-label="Quay lại" onclick="leaveImport()">' + ICON.back + '</button>' +
+    '<div class="title">Tạo lô từ file gốc</div></div>' + srcBox +
+    (info ? '<div class="card stack"><div class="bold">Sheet lô mới (' + news.length + ')</div>' +
+      (news.length ? '<div class="muted small">Sheet tên bắt đầu bằng FBS…, chưa tạo lô, không bị ẩn.</div>' + news.map(radio).join('')
+        : '<div class="muted small">Chưa có sheet lô mới. Thêm sheet mới vào file rồi bấm "↻ Đọc lại".</div>') +
+      (others.length ? '<details class="small"><summary>Sheet khác trong file (' + others.length + ')</summary><div class="stack" style="margin-top:6px">' + others.map(radio).join('') + '</div></details>' : '') +
+      (pick ? '<div class="grid2"><label class="f">Kho nhận<select class="in" id="ik">' +
+        '<option value="">Chọn kho…</option><option value="VNVL"' + (pick.kho === 'VNVL' ? ' selected' : '') + '>VNVL · Long An</option>' +
+        '<option value="VNNL"' + (pick.kho === 'VNNL' ? ' selected' : '') + '>VNNL · Bắc Ninh</option></select></label>' +
+        '<label class="f">ASN (nhập sau cũng được)<input class="in" id="ia"></label></div>' +
+        '<button type="button" class="btn pri" onclick="doImport()">Tạo lô từ sheet "' + esc(pick.name) + '"</button>' : '') + '</div>' : '') +
     '</div>' + nav('lots'));
 }
+function leaveImport() { S.importInfo = null; S.importAsked = false; S.pickSheet = null; go('lots'); }
 function readSource() {
   var url = $('iu').value.trim();
   if (!url) return toast('Chưa dán link.', true);
   call('previewSource', { url: url }, { text: 'Đang đọc file…' }).then(function (d) {
-    S.importInfo = { url: url, title: d.title, sheets: d.sheets }; viewImport();
+    S.importInfo = d; S.changeSrc = false; S.pickSheet = null; viewImport();
+  });
+}
+function refreshSource() {
+  var info = S.importInfo;
+  call('previewSource', info && !info.saved ? { url: info.url } : {}, { text: 'Đang đọc lại file…' }).then(function (d) {
+    if (d && !d.none) { S.importInfo = d; if (d.saved) { S.srcInfo = d; S.srcAt = Date.now(); } }
+    viewImport();
   });
 }
 function pickSheet(name) {
-  var s = S.importInfo.sheets.filter(function (x) { return x.name === name; })[0];
-  if (s && s.kho) $('ik').value = s.kho;
+  var ia = $('ia') ? $('ia').value : '';
+  S.pickSheet = name; viewImport();
+  if ($('ia')) $('ia').value = ia;
 }
 function doImport() {
   var el = document.querySelector('input[name=sh]:checked');
   var kho = $('ik').value;
+  if (!el) return toast('Chọn sheet trước nhé.', true);
   if (!kho) return toast('Chọn kho nhận trước nhé.', true);
-  call('importLot', { url: S.importInfo.url, sheetName: el ? el.value : '', kho: kho, asn: $('ia').value }, { text: 'Đang tải lô hàng…' })
-    .then(function (d) { S.importInfo = null; toast('Đã tải lô hàng.'); go('lot', d.lotId); });
+  call('importLot', { url: S.importInfo.url, sheetName: el.value, kho: kho, asn: $('ia').value }, { text: 'Đang tải lô hàng…' })
+    .then(function (d) { S.importInfo = null; S.importAsked = false; S.pickSheet = null; S.srcInfo = null; toast('Đã tạo lô.'); go('lot', d.lotId); });
 }
 
 /* ===================== CHI TIẾT LÔ ===================== */

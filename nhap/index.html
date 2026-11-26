@@ -1664,7 +1664,13 @@ function gotScan(text) {
   if (hits.length) {
     SCAN.done = true;
     try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) { /* bỏ qua */ }
-    if (hits.length > 1) return showTwinChooser(code, hits);   // barcode dùng chung: bắt chọn đúng loại
+    if (hits.length > 1) {   // barcode dùng chung: các loại khác đã đủ thì tự sang loại còn lại, chưa thì bắt chọn đúng loại
+      var auto = twinAuto(hits);
+      if (!auto) return showTwinChooser(code, hits);
+      closeScanner();
+      S.bag.q = ''; S.bag.scanCode = code; pickSku(auto.sku); twinAutoToast(hits, auto);
+      return;
+    }
     closeScanner();
     choseScanned(code, hits[0]);
     return;
@@ -1742,7 +1748,19 @@ function pickTwinFromList(sku) {
   var bc = normCode(it.barcode);
   var list = S.detail.items.filter(function (i) { return bc && normCode(i.barcode) === bc; });
   if (list.length < 2) return pickSku(sku);
+  var auto = twinAuto(list);
+  if (auto) { S.bag.q = ''; S.bag.scanCode = null; pickSku(auto.sku); return twinAutoToast(list, auto); }
   showTwinChooser('', list);
+}
+/* Barcode dùng chung (chị Bồng 26/11): khi các phân loại khác đã đóng đủ số cần thì phân loại còn lại tự nhận, khỏi hỏi.
+   Còn từ 2 loại chưa đủ (hoặc tất cả đã đủ) thì vẫn hiện bảng chọn như cũ. */
+function twinAuto(list) {
+  var con = list.filter(function (i) { return Number(i.slDong) < Number(i.slCan); });
+  return con.length === 1 ? con[0] : null;
+}
+function twinAutoToast(list, auto) {
+  var du = list.filter(function (i) { return i !== auto; }).map(function (i) { return '"' + i.phanLoai + '"'; }).join(', ');
+  toast(du + ' đã đủ → tự chọn "' + auto.phanLoai + '" (còn ' + Math.max(0, auto.slCan - auto.slDong) + ')');
 }
 
 /* Bảng chọn "Mã này là hàng nào?" (dùng khi quét mã mới, hoặc ghép lại khi lỡ ghép nhầm) */
